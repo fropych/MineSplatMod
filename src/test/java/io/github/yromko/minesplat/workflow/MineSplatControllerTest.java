@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MineSplatControllerTest {
@@ -40,6 +41,8 @@ class MineSplatControllerTest {
     private final AtomicInteger generationPolls = new AtomicInteger();
     private JsonObject generationBody;
     private JsonObject voxelBody;
+    private String uploadContentLength;
+    private int uploadBodyLength;
 
     @BeforeEach
     void startServer() throws IOException {
@@ -98,6 +101,8 @@ class MineSplatControllerTest {
         assertEquals(42, generationBody.get("seed").getAsLong());
         assertEquals(64, voxelBody.get("resolution").getAsInt());
         assertEquals(0.1, voxelBody.get("opacity_threshold").getAsDouble());
+        assertNotNull(uploadContentLength);
+        assertEquals(uploadBodyLength, Integer.parseInt(uploadContentLength));
         waitForDelete("input-1");
         waitForDelete("splat-1");
         waitForDelete("tsvox-1");
@@ -112,8 +117,10 @@ class MineSplatControllerTest {
         String path = exchange.getRequestURI().getPath();
         String method = exchange.getRequestMethod();
         if (method.equals("POST") && path.equals("/v1/artifacts")) {
-            String body = new String(
-                    exchange.getRequestBody().readAllBytes(), StandardCharsets.ISO_8859_1);
+            byte[] uploadBody = exchange.getRequestBody().readAllBytes();
+            uploadContentLength = exchange.getRequestHeaders().getFirst("Content-Length");
+            uploadBodyLength = uploadBody.length;
+            String body = new String(uploadBody, StandardCharsets.ISO_8859_1);
             assertTrue(body.contains("input_image"));
             json(exchange, 201, """
                     {"id":"input-1","type":"input_image","state":"ready",

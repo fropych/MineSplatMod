@@ -19,7 +19,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -105,12 +104,14 @@ public final class TripoSplatApiClient {
                     + safeUploadName(image.getFileName().toString()) + "\"\r\n"
                     + "Content-Type: application/octet-stream\r\n\r\n";
             String suffix = "\r\n--" + boundary + "--\r\n";
+            byte[] prefixBytes = prefix.getBytes(StandardCharsets.UTF_8);
+            byte[] suffixBytes = suffix.getBytes(StandardCharsets.UTF_8);
             HttpRequest request = request("/v1/artifacts")
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                    .POST(HttpRequest.BodyPublishers.ofByteArrays(List.of(
-                            prefix.getBytes(StandardCharsets.UTF_8),
-                            bytes,
-                            suffix.getBytes(StandardCharsets.UTF_8))))
+                    .POST(HttpRequest.BodyPublishers.concat(
+                            HttpRequest.BodyPublishers.ofByteArray(prefixBytes),
+                            HttpRequest.BodyPublishers.ofByteArray(bytes),
+                            HttpRequest.BodyPublishers.ofByteArray(suffixBytes)))
                     .build();
             return sendJson(request, Artifact.class);
         } catch (IOException exception) {
