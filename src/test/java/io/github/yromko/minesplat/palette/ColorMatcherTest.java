@@ -106,6 +106,35 @@ class ColorMatcherTest {
                 () -> new ColorMatcher().match(grid, candidates));
     }
 
+    @Test
+    void flipsTsvoxYIntoMinecraftY() {
+        BlockPalette palette = parse("""
+                [
+                  {"block":"minecraft:black_concrete","profiles":["survival"],"priority":1,
+                   "faces":{"all":[0,0,0]}},
+                  {"block":"minecraft:white_concrete","profiles":["survival"],"priority":1,
+                   "faces":{"all":[255,255,255]}}
+                ]
+                """);
+        int[] indices = {
+                linear(3, 4, 5, 32),
+                linear(3, 6, 5, 32)
+        };
+        byte[] colors = {
+                0, 0, 0,
+                (byte) 255, (byte) 255, (byte) 255
+        };
+        TsvoxGrid grid = new TsvoxReader().read(
+                TsvoxFixtures.valid(32, indices, colors), 32);
+        MatchedVoxels matched = new ColorMatcher().match(
+                grid, palette.candidates(PaletteProfile.SURVIVAL, Set.of()));
+
+        assertEquals("minecraft:black_concrete", matched.block(0).blockId());
+        assertEquals(2, matched.y(0));
+        assertEquals("minecraft:white_concrete", matched.block(1).blockId());
+        assertEquals(0, matched.y(1));
+    }
+
     private static MatchedVoxels matchOne(BlockPalette palette) {
         TsvoxGrid grid = new TsvoxReader().read(
                 TsvoxFixtures.valid(32, new int[]{0}, new byte[]{0, 0, 0}), 32);

@@ -61,7 +61,7 @@ public final class ColorMatcher {
             }
 
             outputX[record] = x - bounds.minX();
-            outputY[record] = y - bounds.minY();
+            outputY[record] = bounds.maxY() - y;
             outputZ[record] = z - bounds.minZ();
             outputBlocks[record] = best;
             materialCounts.merge(best.blockId(), 1, Integer::sum);
