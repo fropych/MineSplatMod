@@ -104,6 +104,18 @@ class TripoSplatApiClientTest {
                 () -> new TripoSplatApiClient("ftp://example.test"));
     }
 
+    @Test
+    void acceptsHostAndPortWithoutSchemeAndRejectsMalformedInputSafely() {
+        String withoutScheme = baseUrl.substring("http://".length());
+        assertEquals(baseUrl, TripoSplatApiClient.normalizeBaseUrl(withoutScheme));
+        assertEquals("http://localhost:8080",
+                TripoSplatApiClient.normalizeBaseUrl("localhost:8080"));
+        assertThrows(IllegalArgumentException.class,
+                () -> TripoSplatApiClient.normalizeBaseUrl("http://"));
+        assertThrows(IllegalArgumentException.class,
+                () -> TripoSplatApiClient.normalizeBaseUrl("https://example.test/?token=x"));
+    }
+
     private void handle(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
         if (path.equals("/health")) {

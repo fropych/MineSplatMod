@@ -51,12 +51,24 @@ public final class TripoSplatApiClient {
         if (input == null || input.isBlank()) {
             throw new IllegalArgumentException("API base URL is empty");
         }
-        URI uri = URI.create(input.trim());
+        String candidate = input.trim();
+        if (!candidate.contains("://")) {
+            candidate = "http://" + candidate;
+        }
+        URI uri;
+        try {
+            uri = URI.create(candidate);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("Enter a valid HTTP or HTTPS API URL", exception);
+        }
         if (!"http".equalsIgnoreCase(uri.getScheme()) && !"https".equalsIgnoreCase(uri.getScheme())) {
             throw new IllegalArgumentException("API URL must use HTTP or HTTPS");
         }
-        if (uri.getHost() == null) {
+        if (uri.getHost() == null || uri.getHost().isBlank()) {
             throw new IllegalArgumentException("API URL has no host");
+        }
+        if (uri.getQuery() != null || uri.getFragment() != null) {
+            throw new IllegalArgumentException("API base URL must not contain a query or fragment");
         }
         String value = uri.toString();
         while (value.endsWith("/")) {

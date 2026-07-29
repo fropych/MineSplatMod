@@ -89,7 +89,13 @@ public final class MineSplatController implements AutoCloseable {
     }
 
     public CompletableFuture<ConnectionInfo> testConnection(String serverUrl) {
-        return new TripoSplatApiClient(serverUrl).testConnection().whenComplete((info, error) -> {
+        final TripoSplatApiClient api;
+        try {
+            api = new TripoSplatApiClient(serverUrl);
+        } catch (RuntimeException exception) {
+            return CompletableFuture.failedFuture(exception);
+        }
+        return api.testConnection().whenComplete((info, error) -> {
             if (error == null) {
                 String device = info.selectedDevice() == null
                         ? "No selected device"
@@ -110,12 +116,18 @@ public final class MineSplatController implements AutoCloseable {
             if (request.seed() < 0) {
                 throw new IllegalArgumentException("Seed must be non-negative");
             }
+            TripoSplatApiClient.normalizeBaseUrl(request.serverUrl());
         } catch (Exception exception) {
             return CompletableFuture.failedFuture(exception);
         }
 
         closeSessionArtifacts();
-        Session next = new Session(request, new TripoSplatApiClient(request.serverUrl()));
+        Session next;
+        try {
+            next = new Session(request, new TripoSplatApiClient(request.serverUrl()));
+        } catch (RuntimeException exception) {
+            return CompletableFuture.failedFuture(exception);
+        }
         session = next;
         pausedPoll = null;
         update(new GenerationSnapshot(

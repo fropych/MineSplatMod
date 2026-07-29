@@ -188,22 +188,29 @@ public final class MineSplatScreen extends Screen {
     }
 
     private void testApi() {
-        persistFields();
-        localMessage = Text.translatable("minesplat.api_testing").getString();
-        localMessageError = false;
-        controller.testConnection(serverUrl.getText()).whenComplete((info, failure) ->
-                client.execute(() -> {
-                    if (failure != null) {
-                        localMessage = usefulMessage(failure);
-                        localMessageError = true;
-                    } else {
-                        String device = info.selectedDevice() == null
-                                ? Text.translatable("minesplat.device_none").getString()
-                                : info.selectedDevice().name();
-                        localMessage = Text.translatable("minesplat.api_ok", device).getString();
-                        localMessageError = false;
-                    }
-                }));
+        try {
+            String normalized = TripoSplatApiClient.normalizeBaseUrl(serverUrl.getText());
+            serverUrl.setText(normalized);
+            persistFields();
+            localMessage = Text.translatable("minesplat.api_testing").getString();
+            localMessageError = false;
+            controller.testConnection(normalized).whenComplete((info, failure) ->
+                    client.execute(() -> {
+                        if (failure != null) {
+                            localMessage = usefulMessage(failure);
+                            localMessageError = true;
+                        } else {
+                            String device = info.selectedDevice() == null
+                                    ? Text.translatable("minesplat.device_none").getString()
+                                    : info.selectedDevice().name();
+                            localMessage = Text.translatable("minesplat.api_ok", device).getString();
+                            localMessageError = false;
+                        }
+                    }));
+        } catch (RuntimeException exception) {
+            localMessage = usefulMessage(exception);
+            localMessageError = true;
+        }
     }
 
     private void chooseImage() {
