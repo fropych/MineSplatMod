@@ -1,0 +1,126 @@
+plugins {
+    id "fabric-loom" version "1.7-SNAPSHOT"
+    id "maven-publish"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    maven {
+        name = "Masa"
+        url = "https://masa.dy.fi/maven"
+        content {
+            includeGroup "fi.dy.masa.malilib"
+        }
+    }
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "Modrinth"
+                url = "https://api.modrinth.com/maven"
+            }
+        }
+        filter {
+            includeGroup "maven.modrinth"
+        }
+    }
+    maven {
+        name = "Terraformers"
+        url = "https://maven.terraformersmc.com/releases/"
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+    modImplementation "fi.dy.masa.malilib:malilib-fabric-${project.minecraft_version}:${project.malilib_version}"
+    modImplementation "maven.modrinth:bEpr0Arc:${project.litematica_version_id}"
+    modCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
+    modLocalRuntime "com.terraformersmc:modmenu:${project.modmenu_version}"
+
+    testImplementation platform("org.junit:junit-bom:5.11.0")
+    testImplementation "org.junit.jupiter:junit-jupiter"
+}
+
+loom {
+    runs {
+        client {
+            client()
+            name "MineSplat Client"
+            vmArg "-Dmixin.debug.export=false"
+        }
+    }
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+    options.release = 21
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+test {
+    useJUnitPlatform()
+}
+
+def mrpackName = "minesplat-prism-${project.minecraft_version}-${project.version}.mrpack"
+
+tasks.register("buildMrpack", Zip) {
+    dependsOn remapJar
+    archiveFileName = mrpackName
+    destinationDirectory = layout.buildDirectory.dir("distributions")
+    from("pack/modrinth.index.json")
+    from("pack/overrides") {
+        into "overrides"
+    }
+    from(tasks.named("remapJar").flatMap { it.archiveFile }) {
+        into "overrides/mods"
+        rename { "minesplat-fabric-${project.minecraft_version}-${project.version}.jar" }
+    }
+}
+
+tasks.register("validateMrpack") {
+    dependsOn tasks.buildMrpack
+    doLast {
+        def archive = tasks.buildMrpack.archiveFile.get().asFile
+        def tree = zipTree(archive)
+        def indexFile = tree.matching { include "modrinth.index.json" }.singleFile
+        def index = new groovy.json.JsonSlurper().parse(indexFile)
+        assert index.formatVersion == 1
+        assert index.game == "minecraft"
+        assert index.dependencies.minecraft == project.minecraft_version
+        assert index.dependencies."fabric-loader" == project.loader_version
+        assert index.files.size() == 4
+        assert index.files.every { it.hashes.sha512 ==~ /[0-9a-f]{128}/ }
+        assert tree.matching {
+            include "overrides/mods/minesplat-fabric-${project.minecraft_version}-${project.version}.jar"
+        }.files.size() == 1
+    }
+}
+
+tasks.check {
+    dependsOn tasks.validateMrpack
+}
+
+tasks.build {
+    dependsOn tasks.buildMrpack
+}

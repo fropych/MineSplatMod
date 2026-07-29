@@ -1,0 +1,164 @@
+package io.github.yromko.minesplat.api;
+
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class TripoSplatApiClientTest {
+    private HttpServer server;
+    private String baseUrl;
+    private final List<JsonObject> generationBodies = new ArrayList<>();
+    private final List<JsonObject> voxelBodies = new ArrayList<>();
+
+    @BeforeEach
+    void startServer() throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", this::handle);
+        server.start();
+        baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+    }
+
+    @AfterEach
+    void stopServer() {
+        server.stop(0);
+    }
+
+    @Test
+    void generationAlwaysUsesFixed32768GaussianContract() {
+        TripoSplatApiClient client = new TripoSplatApiClient(baseUrl);
+        client.enqueueGeneration("input-1", 42).join();
+        client.enqueueGeneration("input-1", Long.MAX_VALUE).join();
+
+        assertEquals(2, generationBodies.size());
+        assertEquals(Set.of(
+                        "input_artifact_id", "seed", "steps", "guidance",
+                        "num_gaussians", "erode_radius"),
+                generationBodies.getFirst().keySet());
+        for (JsonObject body : generationBodies) {
+            assertEquals(32768, body.get("num_gaussians").getAsInt());
+            assertEquals(20, body.get("steps").getAsInt());
+            assertEquals(3.0, body.get("guidance").getAsDouble());
+            assertEquals(1, body.get("erode_radius").getAsInt());
+        }
+        assertEquals(42, generationBodies.get(0).get("seed").getAsLong());
+        assertEquals(Long.MAX_VALUE, generationBodies.get(1).get("seed").getAsLong());
+    }
+
+    @Test
+    void voxelPresetsDifferOnlyByResolution() {
+        TripoSplatApiClient client = new TripoSplatApiClient(baseUrl);
+        for (int resolution : List.of(32, 64, 128)) {
+            client.enqueueVoxelization("ply-1", resolution).join();
+        }
+        assertEquals(3, voxelBodies.size());
+
+        Set<String> expectedKeys = Set.of(
+                "input_artifact_id", "resolution", "opacity_threshold",
+                "color_weight_power", "iso", "tolerance",
+                "integration_steps", "chunk_depth");
+        JsonObject baseline = voxelBodies.getFirst().deepCopy();
+        baseline.remove("resolution");
+        for (int index = 0; index < voxelBodies.size(); index++) {
+            JsonObject body = voxelBodies.get(index);
+            assertEquals(expectedKeys, body.keySet());
+            assertEquals(List.of(32, 64, 128).get(index).intValue(),
+                    body.get("resolution").getAsInt());
+            JsonObject withoutResolution = body.deepCopy();
+            withoutResolution.remove("resolution");
+            assertEquals(baseline, withoutResolution);
+        }
+        assertEquals(0.1, baseline.get("opacity_threshold").getAsDouble());
+        assertEquals(0.625, baseline.get("color_weight_power").getAsDouble());
+        assertEquals(11.345, baseline.get("iso").getAsDouble());
+        assertEquals(0.125, baseline.get("tolerance").getAsDouble());
+        assertEquals(10, baseline.get("integration_steps").getAsInt());
+        assertEquals(0, baseline.get("chunk_depth").getAsInt());
+    }
+
+    @Test
+    void validatesApiIdentityAndMalformedJson() {
+        TripoSplatApiClient client = new TripoSplatApiClient(baseUrl);
+        ApiModels.ConnectionInfo info = client.testConnection().join();
+        assertEquals("NVIDIA A100-SXM4-40GB", info.selectedDevice().name());
+
+        CompletionExceptionAssert.assertCause(
+                ApiException.class,
+                () -> client.getJob("malformed").join());
+        assertThrows(IllegalArgumentException.class,
+                () -> new TripoSplatApiClient("ftp://example.test"));
+    }
+
+    private void handle(HttpExchange exchange) throws IOException {
+        String path = exchange.getRequestURI().getPath();
+        if (path.equals("/health")) {
+            json(exchange, 200,
+                    "{\"status\":\"ok\",\"service\":\"triposplat-vulkan\",\"api_version\":\"v1\"}");
+        } else if (path.equals("/v1/devices")) {
+            json(exchange, 200, """
+                    {"devices":[
+                      {"index":0,"name":"NVIDIA A100-SXM4-40GB","selected":true},
+                      {"index":1,"name":"NVIDIA A100-SXM4-40GB","selected":false}
+                    ]}
+                    """);
+        } else if (path.equals("/v1/generations")) {
+            generationBodies.add(readJson(exchange));
+            json(exchange, 202,
+                    "{\"job_id\":\"generation-1\",\"status\":\"queued\",\"status_url\":\"/v1/jobs/generation-1\"}");
+        } else if (path.equals("/v1/voxelizations")) {
+            voxelBodies.add(readJson(exchange));
+            json(exchange, 202,
+                    "{\"job_id\":\"voxel-1\",\"status\":\"queued\",\"status_url\":\"/v1/jobs/voxel-1\"}");
+        } else if (path.equals("/v1/jobs/malformed")) {
+            json(exchange, 200, "{not-json");
+        } else {
+            json(exchange, 404, "{\"error\":{\"code\":\"not_found\",\"message\":\"not found\"}}");
+        }
+    }
+
+    private static JsonObject readJson(HttpExchange exchange) throws IOException {
+        return JsonParser.parseString(
+                new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8))
+                .getAsJsonObject();
+    }
+
+    private static void json(HttpExchange exchange, int status, String body) throws IOException {
+        byte[] data = body.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json");
+        exchange.sendResponseHeaders(status, data.length);
+        exchange.getResponseBody().write(data);
+        exchange.close();
+    }
+
+    private static final class CompletionExceptionAssert {
+        static void assertCause(
+                Class<? extends Throwable> type,
+                org.junit.jupiter.api.function.Executable executable
+        ) {
+            Throwable thrown = assertThrows(Throwable.class, executable);
+            Set<Throwable> seen = new HashSet<>();
+            while (thrown != null && seen.add(thrown)) {
+                if (type.isInstance(thrown)) {
+                    return;
+                }
+                thrown = thrown.getCause();
+            }
+            throw new AssertionError("Expected throwable chain to contain " + type.getName());
+        }
+    }
+}

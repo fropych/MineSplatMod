@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "minesplat",
+  "version": "${version}",
+  "name": "MineSplat",
+  "description": "Generate a Litematica schematic from an image through a TripoSplat API.",
+  "authors": [
+    "yromko"
+  ],
+  "contact": {
+    "sources": "https://github.com/yromko/MineSplatMod"
+  },
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "io.github.yromko.minesplat.MineSplatClient"
+    ],
+    "modmenu": [
+      "io.github.yromko.minesplat.compat.MineSplatModMenu"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.2",
+    "fabric-api": "*",
+    "minecraft": "1.21.1",
+    "java": ">=21",
+    "litematica": "0.19.50",
+    "malilib": ">=0.21.0 <0.22.0"
+  },
+  "suggests": {
+    "modmenu": ">=11.0.0"
+  }
+}
