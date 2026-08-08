@@ -3,7 +3,10 @@ package io.github.yromko.minesplat.config;
 public enum VoxelPreset {
     PREVIEW("preview", 32),
     STANDARD("standard", 64),
-    DETAILED("detailed", 128);
+    DETAILED("detailed", 128),
+    ULTRA("ultra", 256),
+    MAXIMUM("maximum", 512),
+    EXTREME("extreme", 1024);
 
     private final String id;
     private final int resolution;

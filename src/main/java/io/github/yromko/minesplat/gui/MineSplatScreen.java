@@ -2,7 +2,10 @@ package io.github.yromko.minesplat.gui;
 
 import io.github.yromko.minesplat.api.TripoSplatApiClient;
 import io.github.yromko.minesplat.client.MineSplatDraft;
+import io.github.yromko.minesplat.cnb.CnbBlueprintStore;
+import io.github.yromko.minesplat.cnb.CnbPlacementController;
 import io.github.yromko.minesplat.config.MineSplatConfig;
+import io.github.yromko.minesplat.config.OutputMode;
 import io.github.yromko.minesplat.config.PaletteProfile;
 import io.github.yromko.minesplat.config.VoxelPreset;
 import io.github.yromko.minesplat.palette.BlockPalette;
@@ -44,6 +47,8 @@ public final class MineSplatScreen extends Screen {
     private final BlockPalette palette;
     private final MineSplatController controller;
     private final MineSplatDraft draft;
+    private final CnbPlacementController cnbPlacement;
+    private final CnbBlueprintStore cnbBlueprints;
     private volatile GenerationSnapshot snapshot;
     private AutoCloseable subscription;
 
@@ -52,20 +57,28 @@ public final class MineSplatScreen extends Screen {
     private TextFieldWidget seed;
     private CyclingButtonWidget<VoxelPreset> preset;
     private CyclingButtonWidget<PaletteProfile> paletteProfile;
+    private CyclingButtonWidget<OutputMode> outputMode;
     private ButtonWidget imageButton;
     private ButtonWidget createButton;
     private ButtonWidget cancelButton;
     private ButtonWidget resumeButton;
     private ButtonWidget finishSessionButton;
+    private ButtonWidget placeButton;
+    private ButtonWidget libraryButton;
     private String localMessage;
     private boolean localMessageError;
+    private boolean compactLayout;
+    private int titleY;
+    private int stepperY;
 
     public MineSplatScreen(
             Screen parent,
             MineSplatConfig config,
             BlockPalette palette,
             MineSplatController controller,
-            MineSplatDraft draft
+            MineSplatDraft draft,
+            CnbPlacementController cnbPlacement,
+            CnbBlueprintStore cnbBlueprints
     ) {
         super(Text.translatable("minesplat.title"));
         this.parent = parent;
@@ -73,6 +86,8 @@ public final class MineSplatScreen extends Screen {
         this.palette = palette;
         this.controller = controller;
         this.draft = draft;
+        this.cnbPlacement = cnbPlacement;
+        this.cnbBlueprints = cnbBlueprints;
         this.snapshot = controller.snapshot();
     }
 
@@ -84,9 +99,23 @@ public final class MineSplatScreen extends Screen {
         int left = (width - panelWidth) / 2;
         int gap = 6;
         int testWidth = 116;
+        compactLayout = height < 340;
+        int widgetHeight = compactLayout ? 18 : 20;
+        int serverY = compactLayout ? 18 : 35;
+        int imageY = compactLayout ? 38 : 61;
+        int identityY = compactLayout ? 58 : 87;
+        int optionsY = compactLayout ? 78 : 113;
+        int outputY = compactLayout ? 98 : 139;
+        int blacklistY = compactLayout ? 98 : 165;
+        int actionsY = compactLayout ? 118 : 191;
+        int placementY = compactLayout ? 138 : 217;
+        titleY = compactLayout ? 4 : 15;
+        stepperY = compactLayout
+                ? Math.max(placementY + widgetHeight + 5, height - 44)
+                : 249;
 
         serverUrl = new TextFieldWidget(
-                textRenderer, left, 35, panelWidth - testWidth - gap, 20,
+                textRenderer, left, serverY, panelWidth - testWidth - gap, widgetHeight,
                 Text.translatable("minesplat.server_url"));
         serverUrl.setMaxLength(2048);
         serverUrl.setText(config.serverUrl());
@@ -94,22 +123,28 @@ public final class MineSplatScreen extends Screen {
         addDrawableChild(serverUrl);
         addDrawableChild(ButtonWidget.builder(
                         Text.translatable("minesplat.test_api"), ignored -> testApi())
-                .dimensions(left + panelWidth - testWidth, 35, testWidth, 20).build());
+                .dimensions(
+                        left + panelWidth - testWidth,
+                        serverY,
+                        testWidth,
+                        widgetHeight)
+                .build());
 
         imageButton = addDrawableChild(ButtonWidget.builder(
                         imageLabel(), ignored -> chooseImage())
-                .dimensions(left, 61, panelWidth, 20).build());
+                .dimensions(left, imageY, panelWidth, widgetHeight).build());
 
         int half = (panelWidth - gap) / 2;
         schematicName = new TextFieldWidget(
-                textRenderer, left, 87, half, 20, Text.translatable("minesplat.name"));
+                textRenderer, left, identityY, half, widgetHeight,
+                Text.translatable("minesplat.name"));
         schematicName.setMaxLength(128);
         schematicName.setText(draft.schematicName());
         schematicName.setPlaceholder(Text.translatable("minesplat.name"));
         addDrawableChild(schematicName);
 
         seed = new TextFieldWidget(
-                textRenderer, left + half + gap, 87, half, 20,
+                textRenderer, left + half + gap, identityY, half, widgetHeight,
                 Text.translatable("minesplat.seed"));
         seed.setMaxLength(19);
         seed.setText(Long.toString(config.seed()));
@@ -121,16 +156,36 @@ public final class MineSplatScreen extends Screen {
                         value -> Text.literal(value.id() + " · " + value.resolution() + "³"))
                 .values(VoxelPreset.values())
                 .initially(config.voxelPreset())
-                .build(left, 113, half, 20, Text.translatable("minesplat.preset"),
+                .build(left, optionsY, half, widgetHeight,
+                        Text.translatable("minesplat.preset"),
                         (button, value) -> config.voxelPreset(value)));
         paletteProfile = addDrawableChild(CyclingButtonWidget.<PaletteProfile>builder(
                         value -> Text.literal(value.id()))
                 .values(PaletteProfile.values())
                 .initially(config.paletteProfile())
-                .build(left + half + gap, 113, half, 20,
+                .build(left + half + gap, optionsY, half, widgetHeight,
                         Text.translatable("minesplat.palette"),
                         (button, value) -> config.paletteProfile(value)));
 
+        int outputWidth = compactLayout ? half : panelWidth;
+        outputMode = addDrawableChild(CyclingButtonWidget.<OutputMode>builder(
+                        value -> Text.translatable(
+                                "minesplat.output." + value.id()))
+                .values(OutputMode.values())
+                .initially(config.outputMode())
+                .build(left, outputY, outputWidth, widgetHeight,
+                        Text.translatable("minesplat.output"),
+                        (button, value) -> {
+                            config.outputMode(value);
+                            localMessage = value == OutputMode.CHISELS_AND_BITS
+                                    && !cnbPlacement.integration().available()
+                                    ? cnbPlacement.integration().unavailableReason()
+                                    : null;
+                            localMessageError = localMessage != null;
+                        }));
+
+        int blacklistX = compactLayout ? left + half + gap : left;
+        int blacklistWidth = compactLayout ? half : panelWidth;
         addDrawableChild(ButtonWidget.builder(
                         Text.translatable(
                                 "minesplat.blacklist.count",
@@ -139,23 +194,60 @@ public final class MineSplatScreen extends Screen {
                             persistFields();
                             client.setScreen(new BlacklistScreen(this, config, palette));
                         })
-                .dimensions(left, 139, panelWidth, 20).build());
+                .dimensions(
+                        blacklistX,
+                        blacklistY,
+                        blacklistWidth,
+                        widgetHeight)
+                .build());
 
         int actionWidth = (panelWidth - gap * 3) / 4;
         createButton = addDrawableChild(ButtonWidget.builder(
                         Text.translatable("minesplat.generate"), ignored -> generate())
-                .dimensions(left, 165, actionWidth, 20).build());
+                .dimensions(left, actionsY, actionWidth, widgetHeight).build());
         cancelButton = addDrawableChild(ButtonWidget.builder(
                         Text.translatable("minesplat.cancel"), ignored -> controller.cancel())
-                .dimensions(left + (actionWidth + gap), 165, actionWidth, 20).build());
+                .dimensions(
+                        left + (actionWidth + gap),
+                        actionsY,
+                        actionWidth,
+                        widgetHeight)
+                .build());
         resumeButton = addDrawableChild(ButtonWidget.builder(
                         Text.translatable("minesplat.resume_polling"),
                         ignored -> controller.resumePolling())
-                .dimensions(left + (actionWidth + gap) * 2, 165, actionWidth, 20).build());
+                .dimensions(
+                        left + (actionWidth + gap) * 2,
+                        actionsY,
+                        actionWidth,
+                        widgetHeight)
+                .build());
         finishSessionButton = addDrawableChild(ButtonWidget.builder(
                         Text.translatable("minesplat.close_session"),
                         ignored -> controller.finishSession())
-                .dimensions(left + (actionWidth + gap) * 3, 165, actionWidth, 20).build());
+                .dimensions(
+                        left + (actionWidth + gap) * 3,
+                        actionsY,
+                        actionWidth,
+                        widgetHeight)
+                .build());
+        placeButton = addDrawableChild(ButtonWidget.builder(
+                        Text.translatable("minesplat.cnb.place"),
+                        ignored -> placeBlueprint())
+                .dimensions(left, placementY, half, widgetHeight).build());
+        libraryButton = addDrawableChild(ButtonWidget.builder(
+                        Text.translatable("minesplat.cnb.library"),
+                        ignored -> {
+                            persistFields();
+                            client.setScreen(new CnbBlueprintLibraryScreen(
+                                    this, cnbBlueprints, cnbPlacement));
+                        })
+                .dimensions(
+                        left + half + gap,
+                        placementY,
+                        half,
+                        widgetHeight)
+                .build());
         updateControls();
     }
 
@@ -179,11 +271,23 @@ public final class MineSplatScreen extends Screen {
         } catch (RuntimeException exception) {
             validUrl = false;
         }
+        boolean outputAvailable = outputMode.getValue() != OutputMode.CHISELS_AND_BITS
+                || cnbPlacement.integration().available();
         createButton.active = hasWorld && draft.image() != null && validSeed
-                && validUrl && !value.state().active();
+                && validUrl && outputAvailable && !value.state().active();
         cancelButton.active = value.canCancel();
         resumeButton.active = value.pollingPaused();
         finishSessionButton.active = controller.hasSession() && !value.state().active();
+        placeButton.active = value.state() == GenerationState.SUCCEEDED
+                && value.outputMode() == OutputMode.CHISELS_AND_BITS
+                && value.outputFile() != null
+                && cnbPlacement.canPlaceNow()
+                && !cnbPlacement.active();
+        libraryButton.active = !cnbPlacement.active();
+        createButton.setMessage(Text.translatable(
+                outputMode.getValue() == OutputMode.CHISELS_AND_BITS
+                        ? "minesplat.generate_blueprint"
+                        : "minesplat.generate"));
         imageButton.setMessage(imageLabel());
     }
 
@@ -285,7 +389,8 @@ public final class MineSplatScreen extends Screen {
                     name,
                     preset.getValue(),
                     paletteProfile.getValue(),
-                    config.blacklistedBlocks());
+                    config.blacklistedBlocks(),
+                    outputMode.getValue());
         } else {
             controller.start(new GenerationRequest(
                     serverUrl.getText(),
@@ -294,7 +399,8 @@ public final class MineSplatScreen extends Screen {
                     parsedSeed,
                     preset.getValue(),
                     paletteProfile.getValue(),
-                    config.blacklistedBlocks()));
+                    config.blacklistedBlocks(),
+                    outputMode.getValue()));
         }
         localMessage = null;
     }
@@ -316,6 +422,7 @@ public final class MineSplatScreen extends Screen {
         }
         config.voxelPreset(preset.getValue());
         config.paletteProfile(paletteProfile.getValue());
+        config.outputMode(outputMode.getValue());
         draft.schematicName(schematicName.getText());
         try {
             config.save();
@@ -335,25 +442,68 @@ public final class MineSplatScreen extends Screen {
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
-        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 15, 0xffffff);
+        context.drawCenteredTextWithShadow(
+                textRenderer, title, width / 2, titleY, 0xffffff);
 
         GenerationSnapshot value = snapshot;
         int panelWidth = Math.min(560, width - 20);
         int left = (width - panelWidth) / 2;
-        renderStepper(context, left, 196, panelWidth, value.state());
+        if (compactLayout) {
+            context.fill(
+                    left - 3,
+                    stepperY - 4,
+                    left + panelWidth + 3,
+                    height - 3,
+                    0xa0000000);
+        }
+        renderStepper(
+                context, left, stepperY, panelWidth, value.state(), value.outputMode());
 
-        int textY = 216;
-        Text stateText = Text.translatable(
-                "minesplat.state." + value.state().name().toLowerCase(Locale.ROOT));
+        int textY = stepperY + (compactLayout ? 13 : 20);
+        String stateKey = "minesplat.state."
+                + value.state().name().toLowerCase(Locale.ROOT);
+        if (value.state() == GenerationState.SUCCEEDED
+                && value.outputMode() == OutputMode.CHISELS_AND_BITS) {
+            stateKey = "minesplat.state.succeeded_cnb";
+        }
+        Text stateText = Text.translatable(stateKey);
         context.drawCenteredTextWithShadow(
                 textRenderer, stateText, width / 2, textY,
                 value.state() == GenerationState.FAILED ? 0xff5555 : 0xffffff);
         textY += 13;
 
+        if (compactLayout) {
+            StatusLine status = compactStatus(value);
+            if (status != null && textY <= height - 10) {
+                context.drawCenteredTextWithShadow(
+                        textRenderer,
+                        status.text(),
+                        width / 2,
+                        textY,
+                        status.color());
+            }
+            return;
+        }
+
         if (client.world == null) {
             context.drawCenteredTextWithShadow(
                     textRenderer,
                     Text.translatable("minesplat.world_required"),
+                    width / 2, textY, 0xffaa00);
+            textY += 13;
+        }
+        if (outputMode.getValue() == OutputMode.CHISELS_AND_BITS
+                && !cnbPlacement.integration().available()) {
+            context.drawCenteredTextWithShadow(
+                    textRenderer,
+                    trim(cnbPlacement.integration().unavailableReason(), 90),
+                    width / 2, textY, 0xff5555);
+            textY += 13;
+        } else if (outputMode.getValue() == OutputMode.CHISELS_AND_BITS
+                && !cnbPlacement.canPlaceNow()) {
+            context.drawCenteredTextWithShadow(
+                    textRenderer,
+                    trim(cnbPlacement.placementUnavailableReason(), 90),
                     width / 2, textY, 0xffaa00);
             textY += 13;
         }
@@ -376,11 +526,7 @@ public final class MineSplatScreen extends Screen {
 
         if (value.blockCount() > 0) {
             context.drawCenteredTextWithShadow(
-                    textRenderer,
-                    Text.translatable(
-                            "minesplat.result",
-                            value.width(), value.height(), value.depth(), value.blockCount()),
-                    width / 2, textY, 0x55ff55);
+                    textRenderer, resultText(value), width / 2, textY, 0x55ff55);
             textY += 13;
             String materials = value.materials().entrySet().stream()
                     .sorted(MapEntryComparator.INSTANCE)
@@ -400,17 +546,88 @@ public final class MineSplatScreen extends Screen {
         }
     }
 
+    private StatusLine compactStatus(GenerationSnapshot value) {
+        if (localMessage != null) {
+            return new StatusLine(
+                    Text.literal(trim(localMessage, 90)),
+                    localMessageError ? 0xff5555 : 0x55ff55);
+        }
+        if (value.error() != null) {
+            return new StatusLine(
+                    Text.literal(trim(value.error(), 90)), 0xff5555);
+        }
+        if (outputMode.getValue() == OutputMode.CHISELS_AND_BITS
+                && !cnbPlacement.integration().available()) {
+            return new StatusLine(
+                    Text.literal(trim(
+                            cnbPlacement.integration().unavailableReason(), 90)),
+                    0xff5555);
+        }
+        if ((value.state().active() || value.pollingPaused())
+                && value.message() != null
+                && !value.message().isBlank()) {
+            return new StatusLine(
+                    Text.literal(trim(value.message(), 90)), 0xffff55);
+        }
+        if (client.world == null) {
+            return new StatusLine(
+                    Text.translatable("minesplat.world_required"), 0xffaa00);
+        }
+        if (outputMode.getValue() == OutputMode.CHISELS_AND_BITS
+                && !cnbPlacement.canPlaceNow()) {
+            return new StatusLine(
+                    Text.literal(trim(
+                            cnbPlacement.placementUnavailableReason(), 90)),
+                    0xffaa00);
+        }
+        if (value.blockCount() > 0) {
+            return new StatusLine(resultText(value), 0x55ff55);
+        }
+        if (value.device() != null) {
+            return new StatusLine(
+                    Text.translatable("minesplat.device", value.device()),
+                    0xa0a0a0);
+        }
+        if (value.outputFile() != null) {
+            return new StatusLine(
+                    Text.literal(trim(value.outputFile().toString(), 90)),
+                    0xa0a0a0);
+        }
+        return null;
+    }
+
+    private Text resultText(GenerationSnapshot value) {
+        if (value.outputMode() == OutputMode.CHISELS_AND_BITS
+                && cnbPlacement.integration().available()) {
+            int side = cnbPlacement.integration().bitsPerBlockSide();
+            return Text.translatable(
+                    "minesplat.result_bits",
+                    value.width(), value.height(), value.depth(),
+                    ceilDiv(value.width(), side),
+                    ceilDiv(value.height(), side),
+                    ceilDiv(value.depth(), side),
+                    value.blockCount());
+        }
+        return Text.translatable(
+                "minesplat.result",
+                value.width(), value.height(), value.depth(), value.blockCount());
+    }
+
     private void renderStepper(
             DrawContext context,
             int left,
             int y,
             int panelWidth,
-            GenerationState current
+            GenerationState current,
+            OutputMode mode
     ) {
-        int currentIndex = stepIndex(current);
-        int stepWidth = panelWidth / STEPS.size();
-        for (int index = 0; index < STEPS.size(); index++) {
-            GenerationState step = STEPS.get(index);
+        List<GenerationState> steps = mode == OutputMode.CHISELS_AND_BITS
+                ? STEPS.subList(0, STEPS.size() - 1)
+                : STEPS;
+        int currentIndex = stepIndex(current, mode);
+        int stepWidth = panelWidth / steps.size();
+        for (int index = 0; index < steps.size(); index++) {
+            GenerationState step = steps.get(index);
             int color = index < currentIndex || current == GenerationState.SUCCEEDED
                     ? 0x55ff55
                     : index == currentIndex ? 0xffff55 : 0x707070;
@@ -424,7 +641,10 @@ public final class MineSplatScreen extends Screen {
         }
     }
 
-    private static int stepIndex(GenerationState state) {
+    private static int stepIndex(GenerationState state, OutputMode mode) {
+        int complete = mode == OutputMode.CHISELS_AND_BITS
+                ? STEPS.size() - 1
+                : STEPS.size();
         return switch (state) {
             case UPLOADING -> 0;
             case GENERATION_QUEUED, GENERATION_RUNNING -> 1;
@@ -433,9 +653,20 @@ public final class MineSplatScreen extends Screen {
             case CONVERTING -> 4;
             case SAVING -> 5;
             case PLACING -> 6;
-            case SUCCEEDED -> STEPS.size();
+            case SUCCEEDED -> complete;
             default -> -1;
         };
+    }
+
+    private void placeBlueprint() {
+        GenerationSnapshot value = snapshot;
+        if (value.outputFile() == null || !cnbPlacement.canPlaceNow()) {
+            localMessage = cnbPlacement.placementUnavailableReason();
+            localMessageError = true;
+            return;
+        }
+        cnbPlacement.start(value.outputFile());
+        client.setScreen(null);
     }
 
     private static String trim(String value, int maximum) {
@@ -443,6 +674,10 @@ public final class MineSplatScreen extends Screen {
             return value;
         }
         return value.substring(0, maximum - 1) + "…";
+    }
+
+    private static int ceilDiv(int value, int divisor) {
+        return (value + divisor - 1) / divisor;
     }
 
     private static String usefulMessage(Throwable throwable) {
@@ -496,5 +731,8 @@ public final class MineSplatScreen extends Screen {
             int count = Integer.compare(right.getValue(), left.getValue());
             return count != 0 ? count : left.getKey().compareTo(right.getKey());
         }
+    }
+
+    private record StatusLine(Text text, int color) {
     }
 }

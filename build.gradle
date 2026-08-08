@@ -33,6 +33,13 @@ repositories {
         name = "Terraformers"
         url = "https://maven.terraformersmc.com/releases/"
     }
+    maven {
+        name = "CurseMaven"
+        url = "https://www.cursemaven.com"
+        content {
+            includeGroup "curse.maven"
+        }
+    }
 }
 
 dependencies {
@@ -45,9 +52,19 @@ dependencies {
     modImplementation "maven.modrinth:bEpr0Arc:${project.litematica_version_id}"
     modCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
     modLocalRuntime "com.terraformersmc:modmenu:${project.modmenu_version}"
+    compileOnly "curse.maven:chisels-bits-for-fabric-561059:${project.chisels_bits_file_id}"
 
     testImplementation platform("org.junit:junit-bom:5.11.0")
     testImplementation "org.junit.jupiter:junit-jupiter"
+}
+
+configurations {
+    cnbRuntimeDistribution
+}
+
+dependencies {
+    cnbRuntimeDistribution(
+            "curse.maven:chisels-bits-for-fabric-561059:${project.chisels_bits_file_id}")
 }
 
 loom {
@@ -55,6 +72,12 @@ loom {
         client {
             client()
             name "MineSplat Client"
+            vmArg "-Dmixin.debug.export=false"
+        }
+        cnb {
+            client()
+            name "MineSplat Client with Chisels & Bits"
+            runDir "run-cnb"
             vmArg "-Dmixin.debug.export=false"
         }
     }
@@ -123,4 +146,19 @@ tasks.check {
 
 tasks.build {
     dependsOn tasks.buildMrpack
+}
+
+tasks.register("prepareCnbRuntime", Copy) {
+    from configurations.cnbRuntimeDistribution
+    into layout.projectDirectory.dir("run-cnb/mods")
+}
+
+tasks.named("runCnb") {
+    dependsOn tasks.prepareCnbRuntime
+}
+
+tasks.register("runClientCnb") {
+    group = "fabric"
+    description = "Runs the development client with optional Chisels & Bits support."
+    dependsOn tasks.runCnb
 }

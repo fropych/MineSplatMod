@@ -3,7 +3,7 @@
   "id": "minesplat",
   "version": "${version}",
   "name": "MineSplat",
-  "description": "Generate a Litematica schematic from an image through a TripoSplat API.",
+  "description": "Generate a Litematica schematic or optional Chisels & Bits miniature from an image through a TripoSplat API.",
   "authors": [
     "yromko"
   ],
@@ -21,7 +21,7 @@
     ]
   },
   "depends": {
-    "fabricloader": ">=0.16.2",
+    "fabricloader": ">=0.16.7",
     "fabric-api": "*",
     "minecraft": "1.21.1",
     "java": ">=21",
@@ -29,6 +29,7 @@
     "malilib": ">=0.21.0 <0.22.0"
   },
   "suggests": {
-    "modmenu": ">=11.0.0"
+    "modmenu": ">=11.0.0",
+    "chiselsandbits": "21.1.33"
   }
 }

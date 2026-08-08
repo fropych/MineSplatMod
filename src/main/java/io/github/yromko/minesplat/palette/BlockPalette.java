@@ -70,12 +70,15 @@ public final class BlockPalette {
             JsonObject faces = object.getAsJsonObject("faces");
             int[] all = rgb(faces.getAsJsonArray("all"));
             EnumMap<Direction, double[]> faceColors = new EnumMap<>(Direction.class);
+            EnumMap<Direction, int[]> faceRgb = new EnumMap<>(Direction.class);
             for (Direction direction : Direction.values()) {
                 String key = direction.name().toLowerCase();
                 int[] color = faces.has(key) ? rgb(faces.getAsJsonArray(key)) : all;
                 faceColors.put(direction, Oklab.fromSrgbBytes(color[0], color[1], color[2]));
+                faceRgb.put(direction, color.clone());
             }
-            result.add(new PaletteEntry(block, properties, profiles, priority, faceColors));
+            result.add(new PaletteEntry(
+                    block, properties, profiles, priority, faceColors, faceRgb));
         }
         if (result.isEmpty()) {
             throw new JsonParseException("Palette has no entries");

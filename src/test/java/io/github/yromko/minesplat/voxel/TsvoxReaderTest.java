@@ -64,10 +64,24 @@ class TsvoxReaderTest {
         assertThrows(
                 TsvoxFormatException.class,
                 () -> reader.read(TsvoxFixtures.valid(
-                        16, new int[]{0}, new byte[]{1, 2, 3}), 16));
+                        3, new int[]{0}, new byte[]{1, 2, 3}), 3));
         assertThrows(
                 TsvoxFormatException.class,
                 () -> reader.read(TsvoxFixtures.oneWhiteVoxel(), 64));
+    }
+
+    @Test
+    void acceptsServerMaximum1024Resolution() {
+        int lastVoxel = 1024 * 1024 * 1024 - 1;
+        TsvoxGrid grid = reader.read(
+                TsvoxFixtures.valid(
+                        1024,
+                        new int[]{0, lastVoxel},
+                        new byte[]{0, 0, 0, (byte) 255, (byte) 255, (byte) 255}),
+                1024);
+
+        assertEquals(1024, grid.resolution());
+        assertEquals(2, grid.occupiedCount());
     }
 
     private static void putInt(byte[] data, int offset, int value) {

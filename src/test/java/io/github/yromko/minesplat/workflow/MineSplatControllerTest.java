@@ -5,9 +5,19 @@ import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.github.yromko.minesplat.config.PaletteProfile;
+import io.github.yromko.minesplat.config.OutputMode;
 import io.github.yromko.minesplat.config.VoxelPreset;
+import io.github.yromko.minesplat.cnb.CnbBlueprint;
+import io.github.yromko.minesplat.cnb.CnbBlueprintExporter;
+import io.github.yromko.minesplat.cnb.CnbBlueprintStore;
+import io.github.yromko.minesplat.cnb.CnbIntegration;
+import io.github.yromko.minesplat.cnb.CnbPlacementProgress;
+import io.github.yromko.minesplat.cnb.CnbPlacementResult;
 import io.github.yromko.minesplat.palette.BlockPalette;
+import io.github.yromko.minesplat.palette.PaletteEntry;
 import io.github.yromko.minesplat.testutil.TsvoxFixtures;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.util.math.BlockPos;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +31,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -39,6 +50,7 @@ class MineSplatControllerTest {
     private final List<String> deletes = new CopyOnWriteArrayList<>();
     private final List<GenerationState> states = new CopyOnWriteArrayList<>();
     private final AtomicInteger generationPolls = new AtomicInteger();
+    private final AtomicInteger voxelizations = new AtomicInteger();
     private JsonObject generationBody;
     private JsonObject voxelBody;
     private String uploadContentLength;
@@ -57,7 +69,13 @@ class MineSplatControllerTest {
                     state.accept(GenerationState.PLACING);
                     return java.util.concurrent.CompletableFuture.completedFuture(
                             temporary.resolve(name + "-r" + resolution + ".litematic"));
-                });
+                },
+                new CnbBlueprintExporter(
+                        new CnbBlueprintStore(temporary.resolve("blueprints")),
+                        () -> "tester",
+                        () -> 4189,
+                        Runnable::run),
+                new TestCnbIntegration());
         controller.listen(snapshot -> states.add(snapshot.state()));
     }
 
@@ -80,7 +98,8 @@ class MineSplatControllerTest {
                         42,
                         VoxelPreset.STANDARD,
                         PaletteProfile.SURVIVAL,
-                        Set.of()))
+                        Set.of(),
+                        OutputMode.LITEMATICA))
                 .get(15, TimeUnit.SECONDS);
 
         assertEquals(temporary.resolve("test-r64.litematic"), output);
@@ -109,6 +128,16 @@ class MineSplatControllerTest {
         assertFalse(deletes.contains("ply-1"));
 
         assertTrue(controller.canReuseGeneration(baseUrl, image, 42));
+        Path blueprint = controller.rebuildOrRevoxelize(
+                        "test",
+                        VoxelPreset.STANDARD,
+                        PaletteProfile.SURVIVAL,
+                        Set.of(),
+                        OutputMode.CHISELS_AND_BITS)
+                .get(10, TimeUnit.SECONDS);
+        assertTrue(blueprint.getFileName().toString().endsWith(".msbp"));
+        assertEquals(OutputMode.CHISELS_AND_BITS, controller.snapshot().outputMode());
+        assertEquals(1, voxelizations.get());
         controller.finishSession();
         waitForDelete("ply-1");
     }
@@ -142,6 +171,7 @@ class MineSplatControllerTest {
                         "{\"gaussian_ply\":\"ply-1\",\"splat\":\"splat-1\"}");
             }
         } else if (method.equals("POST") && path.equals("/v1/voxelizations")) {
+            voxelizations.incrementAndGet();
             voxelBody = readJson(exchange);
             json(exchange, 202,
                     "{\"job_id\":\"vox-1\",\"status\":\"queued\",\"status_url\":\"/v1/jobs/vox-1\"}");
@@ -195,5 +225,45 @@ class MineSplatControllerTest {
             Thread.sleep(10);
         }
         assertTrue(deletes.contains(artifact), () -> artifact + " was not deleted: " + deletes);
+    }
+
+    private static final class TestCnbIntegration implements CnbIntegration {
+        @Override
+        public boolean available() {
+            return true;
+        }
+
+        @Override
+        public String unavailableReason() {
+            return "";
+        }
+
+        @Override
+        public int bitsPerBlockSide() {
+            return 16;
+        }
+
+        @Override
+        public CompletableFuture<List<PaletteEntry>> filterEligible(
+                List<PaletteEntry> candidates
+        ) {
+            return CompletableFuture.completedFuture(candidates);
+        }
+
+        @Override
+        public CompletableFuture<CnbPlacementResult> place(
+                MinecraftClient client,
+                CnbBlueprint blueprint,
+                int quarterTurns,
+                BlockPos origin,
+                java.util.function.Consumer<CnbPlacementProgress> progress
+        ) {
+            return CompletableFuture.failedFuture(
+                    new UnsupportedOperationException("not used in controller test"));
+        }
+
+        @Override
+        public void cancelPlacement() {
+        }
     }
 }

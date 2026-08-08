@@ -63,10 +63,11 @@ class TripoSplatApiClientTest {
     @Test
     void voxelPresetsDifferOnlyByResolution() {
         TripoSplatApiClient client = new TripoSplatApiClient(baseUrl);
-        for (int resolution : List.of(32, 64, 128)) {
+        List<Integer> resolutions = List.of(32, 64, 128, 256, 512, 1024);
+        for (int resolution : resolutions) {
             client.enqueueVoxelization("ply-1", resolution).join();
         }
-        assertEquals(3, voxelBodies.size());
+        assertEquals(6, voxelBodies.size());
 
         Set<String> expectedKeys = Set.of(
                 "input_artifact_id", "resolution", "opacity_threshold",
@@ -77,7 +78,7 @@ class TripoSplatApiClientTest {
         for (int index = 0; index < voxelBodies.size(); index++) {
             JsonObject body = voxelBodies.get(index);
             assertEquals(expectedKeys, body.keySet());
-            assertEquals(List.of(32, 64, 128).get(index).intValue(),
+            assertEquals(resolutions.get(index).intValue(),
                     body.get("resolution").getAsInt());
             JsonObject withoutResolution = body.deepCopy();
             withoutResolution.remove("resolution");

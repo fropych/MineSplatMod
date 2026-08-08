@@ -3,6 +3,11 @@ package io.github.yromko.minesplat;
 import fi.dy.masa.malilib.event.InputEventHandler;
 import io.github.yromko.minesplat.client.MineSplatDraft;
 import io.github.yromko.minesplat.client.MineSplatHotkeys;
+import io.github.yromko.minesplat.cnb.CnbBlueprintExporter;
+import io.github.yromko.minesplat.cnb.CnbBlueprintStore;
+import io.github.yromko.minesplat.cnb.CnbIntegration;
+import io.github.yromko.minesplat.cnb.CnbIntegrationLoader;
+import io.github.yromko.minesplat.cnb.CnbPlacementController;
 import io.github.yromko.minesplat.config.MineSplatConfig;
 import io.github.yromko.minesplat.gui.MineSplatScreen;
 import io.github.yromko.minesplat.litematica.LitematicaBridge;
@@ -19,6 +24,9 @@ public final class MineSplatClient implements ClientModInitializer {
     private static MineSplatConfig config;
     private static BlockPalette palette;
     private static MineSplatController controller;
+    private static CnbIntegration cnbIntegration;
+    private static CnbBlueprintStore cnbBlueprints;
+    private static CnbPlacementController cnbPlacement;
     private static final MineSplatDraft DRAFT = new MineSplatDraft();
     private static MineSplatHotkeys hotkeys;
 
@@ -27,14 +35,25 @@ public final class MineSplatClient implements ClientModInitializer {
         config = MineSplatConfig.load();
         palette = BlockPalette.loadDefault();
         MinecraftClient client = MinecraftClient.getInstance();
+        cnbIntegration = CnbIntegrationLoader.load();
+        cnbBlueprints = CnbBlueprintStore.gameStore();
+        cnbPlacement = new CnbPlacementController(client, cnbIntegration, cnbBlueprints);
         controller = new MineSplatController(
                 palette,
-                new LitematicaBridge(client, ForkJoinPool.commonPool()));
+                new LitematicaBridge(client, ForkJoinPool.commonPool()),
+                new CnbBlueprintExporter(
+                        cnbBlueprints,
+                        () -> client.getSession().getUsername(),
+                        ForkJoinPool.commonPool()),
+                cnbIntegration);
 
         hotkeys = new MineSplatHotkeys(MineSplatClient::open);
         InputEventHandler.getKeybindManager().registerKeybindProvider(hotkeys);
         InputEventHandler.getKeybindManager().updateUsedKeys();
-        ClientLifecycleEvents.CLIENT_STOPPING.register(ignored -> controller.close());
+        ClientLifecycleEvents.CLIENT_STOPPING.register(ignored -> {
+            controller.close();
+            cnbPlacement.close();
+        });
     }
 
     public static void open() {
@@ -44,7 +63,14 @@ public final class MineSplatClient implements ClientModInitializer {
 
     public static Screen createScreen(Screen parent) {
         requireInitialized();
-        return new MineSplatScreen(parent, config, palette, controller, DRAFT);
+        return new MineSplatScreen(
+                parent,
+                config,
+                palette,
+                controller,
+                DRAFT,
+                cnbPlacement,
+                cnbBlueprints);
     }
 
     public static MineSplatConfig config() {
@@ -60,7 +86,8 @@ public final class MineSplatClient implements ClientModInitializer {
     }
 
     private static void requireInitialized() {
-        if (config == null || palette == null || controller == null) {
+        if (config == null || palette == null || controller == null
+                || cnbPlacement == null || cnbBlueprints == null) {
             throw new IllegalStateException("MineSplat client has not initialized");
         }
     }

@@ -26,9 +26,11 @@ class MineSplatConfigTest {
         assertEquals(42, config.seed());
         assertEquals(VoxelPreset.STANDARD, config.voxelPreset());
         assertEquals(PaletteProfile.SURVIVAL, config.paletteProfile());
+        assertEquals(OutputMode.LITEMATICA, config.outputMode());
         assertEquals(Set.of("minecraft:stone"), config.blacklistedBlocks());
 
         JsonObject json = JsonParser.parseString(config.toJson()).getAsJsonObject();
-        assertEquals(1, json.get("schemaVersion").getAsInt());
+        assertEquals(2, json.get("schemaVersion").getAsInt());
+        assertEquals("litematica", json.get("outputMode").getAsString());
     }
 }

@@ -1,9 +1,9 @@
 {
   "formatVersion": 1,
   "game": "minecraft",
-  "versionId": "0.1.0",
-  "name": "MineSplat 0.1.0",
-  "summary": "Client-side image to Litematica schematic workflow for TripoSplat API v1.",
+  "versionId": "0.2.0",
+  "name": "MineSplat 0.2.0",
+  "summary": "Client-side image workflow for Litematica and optional Chisels & Bits.",
   "files": [
     {
       "path": "mods/fabric-api-0.107.0+1.21.1.jar",
@@ -64,6 +64,6 @@
   ],
   "dependencies": {
     "minecraft": "1.21.1",
-    "fabric-loader": "0.16.2"
+    "fabric-loader": "0.16.7"
   }
 }

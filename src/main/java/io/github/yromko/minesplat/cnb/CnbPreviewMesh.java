@@ -1,0 +1,290 @@
+package io.github.yromko.minesplat.cnb;
+
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.floats.FloatArrayList;
+import io.github.yromko.minesplat.palette.Direction;
+import net.minecraft.client.render.VertexConsumer;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+public final class CnbPreviewMesh {
+    private final float[] vertices;
+    private final int[] colors;
+
+    private CnbPreviewMesh(float[] vertices, int[] colors) {
+        this.vertices = vertices;
+        this.colors = colors;
+    }
+
+    public static CnbPreviewMesh build(
+            CnbBlueprint blueprint,
+            int bitsPerBlockSide,
+            int quarterTurns
+    ) {
+        int turns = Math.floorMod(quarterTurns, 4);
+        int width = turns % 2 == 0 ? blueprint.width() : blueprint.depth();
+        int height = blueprint.height();
+        int depth = turns % 2 == 0 ? blueprint.depth() : blueprint.width();
+        Int2IntOpenHashMap cells = new Int2IntOpenHashMap(blueprint.voxelCount());
+        cells.defaultReturnValue(-1);
+        for (int index = 0; index < blueprint.voxelCount(); index++) {
+            int x = CnbPacking.rotateX(
+                    blueprint.x(index), blueprint.z(index),
+                    blueprint.width(), blueprint.depth(), turns);
+            int z = CnbPacking.rotateZ(
+                    blueprint.x(index), blueprint.z(index),
+                    blueprint.width(), blueprint.depth(), turns);
+            int y = blueprint.y(index);
+            cells.put(linear(width, height, x, y, z), blueprint.paletteIndexAt(index));
+        }
+
+        Map<FaceKey, FaceCells> faces = new HashMap<>();
+        for (int index = 0; index < blueprint.voxelCount(); index++) {
+            int x = CnbPacking.rotateX(
+                    blueprint.x(index), blueprint.z(index),
+                    blueprint.width(), blueprint.depth(), turns);
+            int z = CnbPacking.rotateZ(
+                    blueprint.x(index), blueprint.z(index),
+                    blueprint.width(), blueprint.depth(), turns);
+            int y = blueprint.y(index);
+            int palette = blueprint.paletteIndexAt(index);
+            for (Direction direction : Direction.values()) {
+                int neighborX = x + direction.dx();
+                int neighborY = y + direction.dy();
+                int neighborZ = z + direction.dz();
+                if (occupied(
+                        cells, width, height, depth,
+                        neighborX, neighborY, neighborZ)) {
+                    continue;
+                }
+                FaceCoordinates face = faceCoordinates(direction, x, y, z, width, depth);
+                faces.computeIfAbsent(
+                                new FaceKey(direction, face.plane(), palette),
+                                unused -> new FaceCells(face.uSize()))
+                        .add(face.u(), face.v());
+            }
+        }
+
+        MeshBuilder builder = new MeshBuilder(bitsPerBlockSide);
+        List<Map.Entry<FaceKey, FaceCells>> orderedFaces = new ArrayList<>(faces.entrySet());
+        orderedFaces.sort(Comparator
+                .comparingInt((Map.Entry<FaceKey, FaceCells> entry) ->
+                        entry.getKey().direction().ordinal())
+                .thenComparingInt(entry -> entry.getKey().plane())
+                .thenComparingInt(entry -> entry.getKey().palette()));
+        for (Map.Entry<FaceKey, FaceCells> entry : orderedFaces) {
+            FaceKey key = entry.getKey();
+            entry.getValue().emit(
+                    key.direction(),
+                    key.plane(),
+                    blueprint.palette().get(key.palette()).faceColor(
+                            inverseRotatedDirection(key.direction(), turns)),
+                    builder);
+        }
+        return builder.build();
+    }
+
+    private static boolean occupied(
+            Int2IntOpenHashMap cells,
+            int width,
+            int height,
+            int depth,
+            int x,
+            int y,
+            int z
+    ) {
+        return x >= 0 && y >= 0 && z >= 0
+                && x < width && y < height && z < depth
+                && cells.get(linear(width, height, x, y, z)) >= 0;
+    }
+
+    private static int linear(int width, int height, int x, int y, int z) {
+        return x + width * (y + height * z);
+    }
+
+    private static FaceCoordinates faceCoordinates(
+            Direction direction,
+            int x,
+            int y,
+            int z,
+            int width,
+            int depth
+    ) {
+        return switch (direction) {
+            case DOWN, UP -> new FaceCoordinates(y, x, z, width);
+            case NORTH, SOUTH -> new FaceCoordinates(z, x, y, width);
+            case WEST, EAST -> new FaceCoordinates(x, z, y, depth);
+        };
+    }
+
+    public void write(VertexConsumer output, int alpha) {
+        for (int quad = 0; quad < quadCount(); quad++) {
+            int red = color(quad, 0);
+            int green = color(quad, 1);
+            int blue = color(quad, 2);
+            for (int vertex = 0; vertex < 4; vertex++) {
+                output.vertex(
+                                vertex(quad, vertex, 0),
+                                vertex(quad, vertex, 1),
+                                vertex(quad, vertex, 2))
+                        .color(red, green, blue, alpha);
+            }
+        }
+    }
+
+    private static Direction inverseRotatedDirection(Direction target, int turns) {
+        Direction result = target;
+        for (int index = 0; index < Math.floorMod(turns, 4); index++) {
+            result = switch (result) {
+                case NORTH -> Direction.WEST;
+                case WEST -> Direction.SOUTH;
+                case SOUTH -> Direction.EAST;
+                case EAST -> Direction.NORTH;
+                default -> result;
+            };
+        }
+        return result;
+    }
+
+    public int quadCount() {
+        return colors.length / 3;
+    }
+
+    public float vertex(int quad, int vertex, int component) {
+        return vertices[(quad * 4 + vertex) * 3 + component];
+    }
+
+    public int color(int quad, int component) {
+        return colors[quad * 3 + component];
+    }
+
+    private record FaceKey(Direction direction, int plane, int palette) {
+    }
+
+    private record FaceCoordinates(int plane, int u, int v, int uSize) {
+    }
+
+    private static final class FaceCells {
+        private final int uSize;
+        private final IntArrayList ordered = new IntArrayList();
+        private final IntOpenHashSet remaining = new IntOpenHashSet();
+
+        private FaceCells(int uSize) {
+            this.uSize = uSize;
+        }
+
+        private void add(int u, int v) {
+            int cell = u + uSize * v;
+            if (remaining.add(cell)) {
+                ordered.add(cell);
+            }
+        }
+
+        private void emit(
+                Direction direction,
+                int plane,
+                int[] rgb,
+                MeshBuilder output
+        ) {
+            int[] cells = ordered.toIntArray();
+            Arrays.sort(cells);
+            for (int cell : cells) {
+                if (!remaining.contains(cell)) {
+                    continue;
+                }
+                int u = cell % uSize;
+                int v = cell / uSize;
+                int rectangleWidth = 1;
+                while (u + rectangleWidth < uSize
+                        && remaining.contains(cell + rectangleWidth)) {
+                    rectangleWidth++;
+                }
+                int rectangleHeight = 1;
+                outer:
+                while (true) {
+                    int row = cell + rectangleHeight * uSize;
+                    for (int offset = 0; offset < rectangleWidth; offset++) {
+                        if (!remaining.contains(row + offset)) {
+                            break outer;
+                        }
+                    }
+                    rectangleHeight++;
+                }
+                for (int row = 0; row < rectangleHeight; row++) {
+                    int rowStart = cell + row * uSize;
+                    for (int offset = 0; offset < rectangleWidth; offset++) {
+                        remaining.remove(rowStart + offset);
+                    }
+                }
+                output.quad(
+                        direction,
+                        plane,
+                        u,
+                        v,
+                        rectangleWidth,
+                        rectangleHeight,
+                        rgb);
+            }
+        }
+    }
+
+    private static final class MeshBuilder {
+        private final float scale;
+        private final FloatArrayList vertices = new FloatArrayList();
+        private final IntArrayList colors = new IntArrayList();
+
+        private MeshBuilder(int bitsPerBlockSide) {
+            scale = 1.0f / bitsPerBlockSide;
+        }
+
+        private void quad(
+                Direction direction,
+                int plane,
+                int u,
+                int v,
+                int width,
+                int height,
+                int[] rgb
+        ) {
+            float[][] points = switch (direction) {
+                case DOWN -> new float[][]{
+                        {u, plane, v}, {u + width, plane, v},
+                        {u + width, plane, v + height}, {u, plane, v + height}};
+                case UP -> new float[][]{
+                        {u, plane + 1, v}, {u, plane + 1, v + height},
+                        {u + width, plane + 1, v + height}, {u + width, plane + 1, v}};
+                case NORTH -> new float[][]{
+                        {u, v, plane}, {u, v + height, plane},
+                        {u + width, v + height, plane}, {u + width, v, plane}};
+                case SOUTH -> new float[][]{
+                        {u, v, plane + 1}, {u + width, v, plane + 1},
+                        {u + width, v + height, plane + 1}, {u, v + height, plane + 1}};
+                case WEST -> new float[][]{
+                        {plane, v, u}, {plane, v, u + width},
+                        {plane, v + height, u + width}, {plane, v + height, u}};
+                case EAST -> new float[][]{
+                        {plane + 1, v, u}, {plane + 1, v + height, u},
+                        {plane + 1, v + height, u + width}, {plane + 1, v, u + width}};
+            };
+            for (float[] point : points) {
+                vertices.add(point[0] * scale);
+                vertices.add(point[1] * scale);
+                vertices.add(point[2] * scale);
+            }
+            colors.add(rgb[0]);
+            colors.add(rgb[1]);
+            colors.add(rgb[2]);
+        }
+
+        private CnbPreviewMesh build() {
+            return new CnbPreviewMesh(vertices.toFloatArray(), colors.toIntArray());
+        }
+    }
+}

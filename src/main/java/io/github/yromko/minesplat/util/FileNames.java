@@ -30,4 +30,17 @@ public final class FileNames {
         }
         return candidate;
     }
+
+    public static Path uniqueBlueprintPath(Path directory, String name, int resolution)
+            throws IOException {
+        Files.createDirectories(directory);
+        String base = sanitize(name) + "-cnb-r" + resolution;
+        Path candidate = directory.resolve(base + ".msbp");
+        int suffix = 2;
+        while (Files.exists(candidate)) {
+            candidate = directory.resolve(base + "-" + suffix + ".msbp");
+            suffix++;
+        }
+        return candidate;
+    }
 }

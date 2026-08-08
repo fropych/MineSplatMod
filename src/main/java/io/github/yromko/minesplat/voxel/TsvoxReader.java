@@ -46,7 +46,8 @@ public final class TsvoxReader {
             throw error("unsupported TSVOX version or header size");
         }
         if (resolution != expectedResolution || !supportedResolution(resolution)) {
-            throw error("resolution does not match the requested 32, 64, or 128 grid");
+            throw error(
+                    "resolution does not match the requested power-of-two grid in 2..1024");
         }
         if (axisOrder != 0 || colorType != 2 || recordBytes != 3) {
             throw error("unsupported axis or color record layout");
@@ -111,9 +112,12 @@ public final class TsvoxReader {
 
         int[] indices = new int[actualCount];
         int cursor = 0;
-        for (int linearIndex = 0; linearIndex < voxelCount; linearIndex++) {
-            if ((occupancy[linearIndex >>> 3] & (1 << (linearIndex & 7))) != 0) {
-                indices[cursor++] = linearIndex;
+        for (int byteIndex = 0; byteIndex < occupancy.length; byteIndex++) {
+            int occupiedBits = Byte.toUnsignedInt(occupancy[byteIndex]);
+            while (occupiedBits != 0) {
+                int bitIndex = Integer.numberOfTrailingZeros(occupiedBits);
+                indices[cursor++] = (byteIndex << 3) + bitIndex;
+                occupiedBits &= occupiedBits - 1;
             }
         }
         return new TsvoxGrid(resolution, occupancy, indices, colors, origin, voxelSize);
@@ -131,7 +135,7 @@ public final class TsvoxReader {
     }
 
     private static boolean supportedResolution(int value) {
-        return value == 32 || value == 64 || value == 128;
+        return VoxelResolutions.isSupportedByServer(value);
     }
 
     private static boolean positiveFinite(float value) {

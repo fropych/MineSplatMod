@@ -9,6 +9,7 @@ import io.github.yromko.minesplat.api.ApiModels.DeviceList;
 import io.github.yromko.minesplat.api.ApiModels.Health;
 import io.github.yromko.minesplat.api.ApiModels.Job;
 import io.github.yromko.minesplat.api.ApiModels.QueuedJob;
+import io.github.yromko.minesplat.voxel.VoxelResolutions;
 
 import java.io.IOException;
 import java.net.URI;
@@ -132,7 +133,7 @@ public final class TripoSplatApiClient {
     }
 
     public CompletableFuture<QueuedJob> enqueueVoxelization(String plyArtifactId, int resolution) {
-        if (resolution != 32 && resolution != 64 && resolution != 128) {
+        if (!VoxelResolutions.isSupportedByServer(resolution)) {
             return CompletableFuture.failedFuture(
                     new IllegalArgumentException("Unsupported voxel resolution: " + resolution));
         }
@@ -222,7 +223,7 @@ public final class TripoSplatApiClient {
         return HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .timeout(REQUEST_TIMEOUT)
                 .header("Accept", "application/json")
-                .header("User-Agent", "MineSplat/0.1.0");
+                .header("User-Agent", "MineSplat/0.2.0");
     }
 
     private static void requireSuccess(int status, byte[] body) {

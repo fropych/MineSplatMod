@@ -1,6 +1,7 @@
 package io.github.yromko.minesplat.workflow;
 
 import io.github.yromko.minesplat.config.PaletteProfile;
+import io.github.yromko.minesplat.config.OutputMode;
 import io.github.yromko.minesplat.config.VoxelPreset;
 
 import java.nio.file.Path;
@@ -13,9 +14,11 @@ public record GenerationRequest(
         long seed,
         VoxelPreset preset,
         PaletteProfile paletteProfile,
-        Set<String> blacklistedBlocks
+        Set<String> blacklistedBlocks,
+        OutputMode outputMode
 ) {
     public GenerationRequest {
         blacklistedBlocks = Set.copyOf(blacklistedBlocks);
+        outputMode = outputMode == null ? OutputMode.LITEMATICA : outputMode;
     }
 }

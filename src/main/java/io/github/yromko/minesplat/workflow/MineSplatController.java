@@ -4,6 +4,10 @@ import io.github.yromko.minesplat.api.ApiException;
 import io.github.yromko.minesplat.api.ApiModels.ConnectionInfo;
 import io.github.yromko.minesplat.api.ApiModels.Job;
 import io.github.yromko.minesplat.api.TripoSplatApiClient;
+import io.github.yromko.minesplat.cnb.CnbBlueprintExporter;
+import io.github.yromko.minesplat.cnb.CnbIntegration;
+import io.github.yromko.minesplat.cnb.UnavailableCnbIntegration;
+import io.github.yromko.minesplat.config.OutputMode;
 import io.github.yromko.minesplat.config.PaletteProfile;
 import io.github.yromko.minesplat.config.VoxelPreset;
 import io.github.yromko.minesplat.litematica.SchematicExporter;
@@ -39,6 +43,8 @@ public final class MineSplatController implements AutoCloseable {
     private final ColorMatcher colorMatcher = new ColorMatcher();
     private final TsvoxReader tsvoxReader = new TsvoxReader();
     private final SchematicExporter litematica;
+    private final CnbBlueprintExporter cnbBlueprints;
+    private final CnbIntegration cnb;
     private final CopyOnWriteArrayList<Consumer<GenerationSnapshot>> listeners =
             new CopyOnWriteArrayList<>();
 
@@ -47,8 +53,23 @@ public final class MineSplatController implements AutoCloseable {
     private PausedPoll pausedPoll;
 
     public MineSplatController(BlockPalette palette, SchematicExporter litematica) {
+        this(
+                palette,
+                litematica,
+                null,
+                new UnavailableCnbIntegration("Chisels & Bits is not installed"));
+    }
+
+    public MineSplatController(
+            BlockPalette palette,
+            SchematicExporter litematica,
+            CnbBlueprintExporter cnbBlueprints,
+            CnbIntegration cnb
+    ) {
         this.palette = palette;
         this.litematica = litematica;
+        this.cnbBlueprints = cnbBlueprints;
+        this.cnb = cnb;
         this.worker = Executors.newSingleThreadExecutor(daemonFactory("MineSplat worker"));
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
                 daemonFactory("MineSplat polling"));
@@ -141,7 +162,9 @@ public final class MineSplatController implements AutoCloseable {
                 request.preset().resolution(),
                 0, 0, 0, 0,
                 Map.of(),
-                null));
+                null,
+                request.outputMode()));
+        next.outputMode = request.outputMode();
 
         CompletableFuture<Path> flow = next.api.uploadImage(request.image())
                 .thenApply(artifact -> {
@@ -160,7 +183,8 @@ public final class MineSplatController implements AutoCloseable {
                 })
                 .thenCompose(job -> finishGeneration(next, job))
                 .thenCompose(ignored -> voxelize(next, request.preset(), request.paletteProfile(),
-                        request.blacklistedBlocks(), request.schematicName()));
+                        request.blacklistedBlocks(), request.schematicName(),
+                        request.outputMode()));
 
         attachTerminal(next, flow);
         return flow;
@@ -170,7 +194,8 @@ public final class MineSplatController implements AutoCloseable {
             String schematicName,
             VoxelPreset preset,
             PaletteProfile profile,
-            Set<String> blacklist
+            Set<String> blacklist,
+            OutputMode outputMode
     ) {
         Session current = session;
         if (current == null || current.plyArtifactId == null) {
@@ -182,13 +207,15 @@ public final class MineSplatController implements AutoCloseable {
                     new IllegalStateException("A MineSplat operation is already running"));
         }
         current.cancelled = false;
+        current.outputMode = outputMode;
         pausedPoll = null;
 
         CompletableFuture<Path> flow;
         if (current.grid != null && current.grid.resolution() == preset.resolution()) {
-            flow = convertAndSave(current, schematicName, preset, profile, blacklist, current.grid);
+            flow = convertAndSave(
+                    current, schematicName, preset, profile, blacklist, current.grid, outputMode);
         } else {
-            flow = voxelize(current, preset, profile, blacklist, schematicName);
+            flow = voxelize(current, preset, profile, blacklist, schematicName, outputMode);
         }
         attachTerminal(current, flow);
         return flow;
@@ -263,7 +290,8 @@ public final class MineSplatController implements AutoCloseable {
             VoxelPreset preset,
             PaletteProfile profile,
             Set<String> blacklist,
-            String schematicName
+            String schematicName,
+            OutputMode outputMode
     ) {
         ensureActive(current);
         current.grid = null;
@@ -303,7 +331,7 @@ public final class MineSplatController implements AutoCloseable {
                     return grid;
                 }, worker)
                 .thenCompose(grid -> convertAndSave(
-                        current, schematicName, preset, profile, blacklist, grid));
+                        current, schematicName, preset, profile, blacklist, grid, outputMode));
     }
 
     private CompletableFuture<Path> convertAndSave(
@@ -312,21 +340,39 @@ public final class MineSplatController implements AutoCloseable {
             VoxelPreset preset,
             PaletteProfile profile,
             Set<String> blacklist,
-            TsvoxGrid grid
+            TsvoxGrid grid,
+            OutputMode outputMode
     ) {
         update(copy(snapshot, GenerationState.CONVERTING,
                 "Matching voxel colors to Minecraft blocks", null)
                 .withResolution(preset.resolution())
                 .withResult(0, 0, 0, 0, Map.of(), null));
-        return CompletableFuture.supplyAsync(() -> {
+        var baseCandidates = palette.candidates(profile, blacklist);
+        CompletableFuture<java.util.List<io.github.yromko.minesplat.palette.PaletteEntry>>
+                candidates = outputMode == OutputMode.CHISELS_AND_BITS
+                ? cnb.filterEligible(baseCandidates)
+                : CompletableFuture.completedFuture(baseCandidates);
+        return candidates.thenCompose(eligible -> CompletableFuture.supplyAsync(() -> {
             ensureActive(current);
-            return colorMatcher.match(grid, palette.candidates(profile, blacklist));
-        }, worker).thenCompose(matched -> {
+            return colorMatcher.match(grid, eligible);
+        }, worker)).thenCompose(matched -> {
             ensureActive(current);
-            update(copy(snapshot, GenerationState.SAVING, "Creating Litematica schematic", null)
+            String message = outputMode == OutputMode.CHISELS_AND_BITS
+                    ? "Saving Chisels & Bits blueprint"
+                    : "Creating Litematica schematic";
+            update(copy(snapshot, GenerationState.SAVING, message, null)
+                    .withOutputMode(outputMode)
                     .withResult(
                             matched.width(), matched.height(), matched.depth(),
                             matched.size(), matched.materialCounts(), null));
+            if (outputMode == OutputMode.CHISELS_AND_BITS) {
+                if (cnbBlueprints == null) {
+                    return CompletableFuture.failedFuture(
+                            new IllegalStateException(cnb.unavailableReason()));
+                }
+                return cnbBlueprints.save(
+                        schematicName, preset.resolution(), profile, matched);
+            }
             return litematica.saveAndPlace(
                     schematicName,
                     preset.resolution(),
@@ -439,8 +485,11 @@ public final class MineSplatController implements AutoCloseable {
                 update(copy(snapshot, GenerationState.FAILED, "MineSplat failed",
                         usefulMessage(cause)).withJob(null, false, false));
             } else {
+                String message = current.outputMode == OutputMode.CHISELS_AND_BITS
+                        ? "Chisels & Bits blueprint saved"
+                        : "Schematic saved and placed";
                 update(copy(snapshot, GenerationState.SUCCEEDED,
-                        "Schematic saved and placed", null)
+                        message, null)
                         .withJob(null, false, false)
                         .withOutput(path));
             }
@@ -565,6 +614,7 @@ public final class MineSplatController implements AutoCloseable {
         private String outputArtifactId;
         private TsvoxGrid grid;
         private CompletableFuture<Path> activeFlow;
+        private OutputMode outputMode = OutputMode.LITEMATICA;
 
         private Session(GenerationRequest request, TripoSplatApiClient api) {
             this.request = request;
@@ -590,6 +640,7 @@ public final class MineSplatController implements AutoCloseable {
         private int blockCount;
         private Map<String, Integer> materials;
         private Path outputFile;
+        private OutputMode outputMode;
 
         private SnapshotBuilder(
                 GenerationSnapshot source,
@@ -611,6 +662,7 @@ public final class MineSplatController implements AutoCloseable {
             this.blockCount = source.blockCount();
             this.materials = source.materials();
             this.outputFile = source.outputFile();
+            this.outputMode = source.outputMode();
         }
 
         private SnapshotBuilder withDevice(String value) {
@@ -652,10 +704,16 @@ public final class MineSplatController implements AutoCloseable {
             return this;
         }
 
+        private SnapshotBuilder withOutputMode(OutputMode value) {
+            outputMode = value;
+            return this;
+        }
+
         private GenerationSnapshot build() {
             return new GenerationSnapshot(
                     state, message, error, device, jobId, queued, pollingPaused,
-                    resolution, width, height, depth, blockCount, materials, outputFile);
+                    resolution, width, height, depth, blockCount, materials, outputFile,
+                    outputMode);
         }
     }
 }
