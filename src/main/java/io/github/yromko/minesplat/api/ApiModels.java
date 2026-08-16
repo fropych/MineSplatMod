@@ -61,6 +61,9 @@ public final class ApiModels {
         }
     }
 
-    public record ConnectionInfo(Health health, Device selectedDevice) {
+    public record ConnectionInfo(Health health, Device selectedDevice, List<Device> devices) {
+        public ConnectionInfo {
+            devices = devices == null ? List.of() : List.copyOf(devices);
+        }
     }
 }

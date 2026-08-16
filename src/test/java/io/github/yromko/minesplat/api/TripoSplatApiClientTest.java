@@ -24,7 +24,9 @@ class TripoSplatApiClientTest {
     private HttpServer server;
     private String baseUrl;
     private final List<JsonObject> generationBodies = new ArrayList<>();
+    private final List<JsonObject> textGenerationBodies = new ArrayList<>();
     private final List<JsonObject> voxelBodies = new ArrayList<>();
+    private boolean rejectTextGeneration;
 
     @BeforeEach
     void startServer() throws IOException {
@@ -58,6 +60,51 @@ class TripoSplatApiClientTest {
         }
         assertEquals(42, generationBodies.get(0).get("seed").getAsLong());
         assertEquals(Long.MAX_VALUE, generationBodies.get(1).get("seed").getAsLong());
+    }
+
+    @Test
+    void textGenerationUsesPinnedImageAndGaussianDefaults() {
+        TripoSplatApiClient client = new TripoSplatApiClient(baseUrl);
+        client.enqueueTextGeneration("  a mossy stone cottage  ", 73).join();
+
+        assertEquals(1, textGenerationBodies.size());
+        JsonObject body = textGenerationBodies.getFirst();
+        assertEquals(Set.of(
+                        "prompt", "seed", "width", "height", "image_steps",
+                        "steps", "guidance", "num_gaussians", "erode_radius"),
+                body.keySet());
+        assertEquals("a mossy stone cottage", body.get("prompt").getAsString());
+        assertEquals(73, body.get("seed").getAsLong());
+        assertEquals(1024, body.get("width").getAsInt());
+        assertEquals(1024, body.get("height").getAsInt());
+        assertEquals(8, body.get("image_steps").getAsInt());
+        assertEquals(20, body.get("steps").getAsInt());
+        assertEquals(3.0, body.get("guidance").getAsDouble());
+        assertEquals(32768, body.get("num_gaussians").getAsInt());
+        assertEquals(1, body.get("erode_radius").getAsInt());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> client.enqueueTextGeneration("   ", 42));
+        assertThrows(IllegalArgumentException.class,
+                () -> client.enqueueTextGeneration("x".repeat(8193), 42));
+        assertThrows(IllegalArgumentException.class,
+                () -> client.enqueueTextGeneration("\ud800", 42));
+    }
+
+    @Test
+    void explainsWhenRemoteServerPredatesPromptApi() {
+        rejectTextGeneration = true;
+        TripoSplatApiClient client = new TripoSplatApiClient(baseUrl);
+
+        Throwable thrown = assertThrows(Throwable.class,
+                () -> client.enqueueTextGeneration("cottage", 42).join());
+        Throwable current = thrown;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        ApiException error = (ApiException) current;
+        assertEquals("text_generation_unsupported", error.errorCode());
+        assertTrue(error.getMessage().contains("v0.2.0"));
     }
 
     @Test
@@ -133,6 +180,15 @@ class TripoSplatApiClientTest {
             generationBodies.add(readJson(exchange));
             json(exchange, 202,
                     "{\"job_id\":\"generation-1\",\"status\":\"queued\",\"status_url\":\"/v1/jobs/generation-1\"}");
+        } else if (path.equals("/v1/text-generations")) {
+            if (rejectTextGeneration) {
+                json(exchange, 404,
+                        "{\"error\":{\"code\":\"not_found\",\"message\":\"not found\"}}");
+                return;
+            }
+            textGenerationBodies.add(readJson(exchange));
+            json(exchange, 202,
+                    "{\"job_id\":\"text-1\",\"status\":\"queued\",\"status_url\":\"/v1/jobs/text-1\"}");
         } else if (path.equals("/v1/voxelizations")) {
             voxelBodies.add(readJson(exchange));
             json(exchange, 202,

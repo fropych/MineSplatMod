@@ -10,15 +10,21 @@ import io.github.yromko.minesplat.cnb.CnbIntegrationLoader;
 import io.github.yromko.minesplat.cnb.CnbPlacementController;
 import io.github.yromko.minesplat.config.MineSplatConfig;
 import io.github.yromko.minesplat.gui.MineSplatScreen;
+import io.github.yromko.minesplat.inference.LocalModelManager;
+import io.github.yromko.minesplat.inference.LocalRuntimeManager;
+import io.github.yromko.minesplat.inference.TripoSplatEndpointResolver;
+import io.github.yromko.minesplat.inference.TripoSplatRuntimeVersion;
 import io.github.yromko.minesplat.litematica.LitematicaBridge;
 import io.github.yromko.minesplat.palette.BlockPalette;
 import io.github.yromko.minesplat.workflow.MineSplatController;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
 
 import java.util.concurrent.ForkJoinPool;
+import java.nio.file.Path;
 
 public final class MineSplatClient implements ClientModInitializer {
     private static MineSplatConfig config;
@@ -27,6 +33,8 @@ public final class MineSplatClient implements ClientModInitializer {
     private static CnbIntegration cnbIntegration;
     private static CnbBlueprintStore cnbBlueprints;
     private static CnbPlacementController cnbPlacement;
+    private static LocalModelManager localModels;
+    private static LocalRuntimeManager localRuntime;
     private static final MineSplatDraft DRAFT = new MineSplatDraft();
     private static MineSplatHotkeys hotkeys;
 
@@ -38,6 +46,19 @@ public final class MineSplatClient implements ClientModInitializer {
         cnbIntegration = CnbIntegrationLoader.load();
         cnbBlueprints = CnbBlueprintStore.gameStore();
         cnbPlacement = new CnbPlacementController(client, cnbIntegration, cnbBlueprints);
+        Path gameDirectory = FabricLoader.getInstance().getGameDir();
+        Path defaultModels = gameDirectory.resolve("minesplat/models")
+                .resolve(TripoSplatRuntimeVersion.MODEL_REVISION);
+        Path modelDirectory = defaultModels;
+        if (!config.localModelDirectory().isBlank()) {
+            try {
+                modelDirectory = Path.of(config.localModelDirectory());
+            } catch (RuntimeException ignored) {
+                config.localModelDirectory("");
+            }
+        }
+        localModels = new LocalModelManager(modelDirectory);
+        localRuntime = new LocalRuntimeManager(gameDirectory, localModels);
         controller = new MineSplatController(
                 palette,
                 new LitematicaBridge(client, ForkJoinPool.commonPool()),
@@ -45,13 +66,15 @@ public final class MineSplatClient implements ClientModInitializer {
                         cnbBlueprints,
                         () -> client.getSession().getUsername(),
                         ForkJoinPool.commonPool()),
-                cnbIntegration);
+                cnbIntegration,
+                new TripoSplatEndpointResolver(localRuntime));
 
         hotkeys = new MineSplatHotkeys(MineSplatClient::open);
         InputEventHandler.getKeybindManager().registerKeybindProvider(hotkeys);
         InputEventHandler.getKeybindManager().updateUsedKeys();
         ClientLifecycleEvents.CLIENT_STOPPING.register(ignored -> {
             controller.close();
+            localModels.close();
             cnbPlacement.close();
         });
     }
@@ -70,7 +93,9 @@ public final class MineSplatClient implements ClientModInitializer {
                 controller,
                 DRAFT,
                 cnbPlacement,
-                cnbBlueprints);
+                cnbBlueprints,
+                localModels,
+                localRuntime);
     }
 
     public static MineSplatConfig config() {
@@ -87,7 +112,8 @@ public final class MineSplatClient implements ClientModInitializer {
 
     private static void requireInitialized() {
         if (config == null || palette == null || controller == null
-                || cnbPlacement == null || cnbBlueprints == null) {
+                || cnbPlacement == null || cnbBlueprints == null
+                || localModels == null || localRuntime == null) {
             throw new IllegalStateException("MineSplat client has not initialized");
         }
     }

@@ -15,6 +15,7 @@ import io.github.yromko.minesplat.cnb.CnbPlacementProgress;
 import io.github.yromko.minesplat.cnb.CnbPlacementResult;
 import io.github.yromko.minesplat.palette.BlockPalette;
 import io.github.yromko.minesplat.palette.PaletteEntry;
+import io.github.yromko.minesplat.inference.InferenceTarget;
 import io.github.yromko.minesplat.testutil.TsvoxFixtures;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.util.math.BlockPos;
@@ -52,6 +53,7 @@ class MineSplatControllerTest {
     private final AtomicInteger generationPolls = new AtomicInteger();
     private final AtomicInteger voxelizations = new AtomicInteger();
     private JsonObject generationBody;
+    private JsonObject textGenerationBody;
     private JsonObject voxelBody;
     private String uploadContentLength;
     private int uploadBodyLength;
@@ -92,7 +94,7 @@ class MineSplatControllerTest {
                 (byte) 0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3
         });
         Path output = controller.start(new GenerationRequest(
-                        baseUrl,
+                        new InferenceTarget.Remote(baseUrl),
                         image,
                         "test",
                         42,
@@ -127,7 +129,8 @@ class MineSplatControllerTest {
         waitForDelete("tsvox-1");
         assertFalse(deletes.contains("ply-1"));
 
-        assertTrue(controller.canReuseGeneration(baseUrl, image, 42));
+        assertTrue(controller.canReuseGeneration(
+                new InferenceTarget.Remote(baseUrl), image, 42));
         Path blueprint = controller.rebuildOrRevoxelize(
                         "test",
                         VoxelPreset.STANDARD,
@@ -140,6 +143,32 @@ class MineSplatControllerTest {
         assertEquals(1, voxelizations.get());
         controller.finishSession();
         waitForDelete("ply-1");
+    }
+
+    @Test
+    void performsPromptFlowAndDeletesGeneratedImage() throws Exception {
+        GenerationSource.Prompt prompt = new GenerationSource.Prompt("a mossy stone cottage");
+        Path output = controller.start(new GenerationRequest(
+                        new InferenceTarget.Remote(baseUrl),
+                        prompt,
+                        "cottage",
+                        73,
+                        VoxelPreset.STANDARD,
+                        PaletteProfile.SURVIVAL,
+                        Set.of(),
+                        OutputMode.LITEMATICA))
+                .get(15, TimeUnit.SECONDS);
+
+        assertEquals(temporary.resolve("cottage-r64.litematic"), output);
+        assertEquals("a mossy stone cottage",
+                textGenerationBody.get("prompt").getAsString());
+        assertEquals(1024, textGenerationBody.get("width").getAsInt());
+        assertEquals(8, textGenerationBody.get("image_steps").getAsInt());
+        waitForDelete("image-text-1");
+        waitForDelete("splat-text-1");
+        assertFalse(deletes.contains("ply-text-1"));
+        assertTrue(controller.canReuseGeneration(
+                new InferenceTarget.Remote(baseUrl), prompt, 73));
     }
 
     private void handle(HttpExchange exchange) throws IOException {
@@ -160,6 +189,10 @@ class MineSplatControllerTest {
             generationBody = readJson(exchange);
             json(exchange, 202,
                     "{\"job_id\":\"gen-1\",\"status\":\"queued\",\"status_url\":\"/v1/jobs/gen-1\"}");
+        } else if (method.equals("POST") && path.equals("/v1/text-generations")) {
+            textGenerationBody = readJson(exchange);
+            json(exchange, 202,
+                    "{\"job_id\":\"text-1\",\"status\":\"queued\",\"status_url\":\"/v1/jobs/text-1\"}");
         } else if (method.equals("GET") && path.equals("/v1/jobs/gen-1")) {
             int poll = generationPolls.getAndIncrement();
             if (poll == 0) {
@@ -170,6 +203,10 @@ class MineSplatControllerTest {
                 job(exchange, "gen-1", "succeeded",
                         "{\"gaussian_ply\":\"ply-1\",\"splat\":\"splat-1\"}");
             }
+        } else if (method.equals("GET") && path.equals("/v1/jobs/text-1")) {
+            job(exchange, "text-1", "succeeded",
+                    "{\"image\":\"image-text-1\",\"gaussian_ply\":\"ply-text-1\","
+                            + "\"splat\":\"splat-text-1\"}");
         } else if (method.equals("POST") && path.equals("/v1/voxelizations")) {
             voxelizations.incrementAndGet();
             voxelBody = readJson(exchange);

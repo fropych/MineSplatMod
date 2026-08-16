@@ -16,11 +16,14 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 public final class MineSplatConfig {
-    public static final int SCHEMA_VERSION = 2;
+    public static final int SCHEMA_VERSION = 3;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private int schemaVersion = SCHEMA_VERSION;
     private String serverUrl = "";
+    private String inferenceMode = InferenceMode.REMOTE.id();
+    private int localDeviceIndex = 0;
+    private String localModelDirectory = "";
     private long seed = 42;
     private String voxelPreset = VoxelPreset.STANDARD.id();
     private String paletteProfile = PaletteProfile.SURVIVAL.id();
@@ -80,6 +83,12 @@ public final class MineSplatConfig {
     private void validateAndMigrate() {
         schemaVersion = SCHEMA_VERSION;
         serverUrl = serverUrl == null ? "" : serverUrl.trim();
+        inferenceMode = InferenceMode.fromId(inferenceMode).id();
+        if (localDeviceIndex < 0) {
+            localDeviceIndex = 0;
+        }
+        localModelDirectory = localModelDirectory == null
+                ? "" : localModelDirectory.trim();
         if (seed < 0) {
             seed = 42;
         }
@@ -99,6 +108,33 @@ public final class MineSplatConfig {
 
     public void serverUrl(String value) {
         serverUrl = value == null ? "" : value.trim();
+    }
+
+    public InferenceMode inferenceMode() {
+        return InferenceMode.fromId(inferenceMode);
+    }
+
+    public void inferenceMode(InferenceMode value) {
+        inferenceMode = value == null ? InferenceMode.REMOTE.id() : value.id();
+    }
+
+    public int localDeviceIndex() {
+        return localDeviceIndex;
+    }
+
+    public void localDeviceIndex(int value) {
+        if (value < 0) {
+            throw new IllegalArgumentException("local device index must be non-negative");
+        }
+        localDeviceIndex = value;
+    }
+
+    public String localModelDirectory() {
+        return localModelDirectory;
+    }
+
+    public void localModelDirectory(String value) {
+        localModelDirectory = value == null ? "" : value.trim();
     }
 
     public long seed() {

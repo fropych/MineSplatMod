@@ -3,7 +3,7 @@
   "id": "minesplat",
   "version": "${version}",
   "name": "MineSplat",
-  "description": "Generate a Litematica schematic or optional Chisels & Bits miniature from an image through a TripoSplat API.",
+  "description": "Generate a Litematica schematic or optional Chisels & Bits miniature from an image or text prompt with local or remote TripoSplat inference.",
   "authors": [
     "yromko"
   ],

@@ -90,6 +90,82 @@ processResources {
     }
 }
 
+def tripoSplatRelease = "v0.2.0"
+def tripoSplatSourceCommit = "4bb05dec707f1f34f47aac2d679c1bd7021eb779"
+def tripoSplatManifest = file(
+        "src/main/resources/assets/minesplat/triposplat/runtime-manifest.json")
+def tripoSplatModelManifest = file(
+        "src/main/resources/assets/minesplat/triposplat/model-manifest.json")
+
+tasks.register("validateTripoSplatRuntime") {
+    group = "verification"
+    description = "Verifies bundled TripoSplatVulkan runtimes against their manifest."
+    inputs.file(tripoSplatManifest)
+    inputs.dir(file("src/main/resources/assets/minesplat/triposplat/runtime"))
+    doLast {
+        def manifest = new groovy.json.JsonSlurper().parse(tripoSplatManifest)
+        assert manifest.release == tripoSplatRelease
+        assert manifest.sourceCommit == tripoSplatSourceCommit
+        assert manifest.platforms*.platform as Set ==
+                ["linux-x86_64", "windows-x86_64"] as Set
+        assert manifest.platforms.every { platform ->
+            platform.archiveUrl.startsWith(
+                    "https://github.com/fropych/TripoSplatVulkan/releases/download/${tripoSplatRelease}/") &&
+                    platform.archiveSha256 ==~ /[0-9a-f]{64}/ &&
+                    platform.executable && platform.files && platform.files.any {
+                it.path == platform.executable
+            }
+        }
+        manifest.platforms.each { platform ->
+            platform.files.each { entry ->
+                assert entry.resource.startsWith("/assets/minesplat/triposplat/runtime/")
+                def bundled = file("src/main/resources${entry.resource}")
+                assert bundled.isFile(): "Missing bundled runtime file: ${entry.resource}"
+                assert bundled.length() == entry.size:
+                        "Unexpected size for bundled runtime file: ${entry.resource}"
+                def digest = java.security.MessageDigest.getInstance("SHA-256")
+                bundled.withInputStream { input ->
+                    byte[] buffer = new byte[1024 * 1024]
+                    int count
+                    while ((count = input.read(buffer)) >= 0) {
+                        if (count > 0) {
+                            digest.update(buffer, 0, count)
+                        }
+                    }
+                }
+                assert java.util.HexFormat.of().formatHex(digest.digest()) == entry.sha256:
+                        "SHA-256 mismatch for bundled runtime file: ${entry.resource}"
+            }
+        }
+    }
+}
+
+tasks.register("validateTripoSplatModels") {
+    group = "verification"
+    description = "Verifies pinned CORE/TEXT TripoSplat model metadata."
+    inputs.file(tripoSplatModelManifest)
+    doLast {
+        def manifest = new groovy.json.JsonSlurper().parse(tripoSplatModelManifest)
+        assert manifest.revision == "de3b99ab2627d565a8d5fc40f2db52557b82b974"
+        assert manifest.files*.set as Set == ["core", "text"] as Set
+        assert manifest.files.count { it.set == "core" } == 5
+        assert manifest.files.count { it.set == "text" } == 3
+        assert manifest.files.every {
+            it.path && it.size > 0 && it.sha256 ==~ /[0-9a-f]{64}/ &&
+                    it.url?.startsWith("https://huggingface.co/")
+        }
+        def converted = manifest.files.findAll { it.installedSize != null }
+        assert converted*.path as Set == [
+                "background_removal/birefnet.safetensors",
+                "clip_vision/dino_v3_vit_h.safetensors",
+                "vae/flux2-vae.safetensors"
+        ] as Set
+        assert converted.every {
+            it.installedSize > 0 && it.installedSha256 ==~ /[0-9a-f]{64}/
+        }
+    }
+}
+
 tasks.withType(JavaCompile).configureEach {
     options.encoding = "UTF-8"
     options.release = 21
@@ -142,6 +218,8 @@ tasks.register("validateMrpack") {
 
 tasks.check {
     dependsOn tasks.validateMrpack
+    dependsOn tasks.validateTripoSplatRuntime
+    dependsOn tasks.validateTripoSplatModels
 }
 
 tasks.build {

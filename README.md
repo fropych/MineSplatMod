@@ -1,12 +1,16 @@
 # MineSplat
 
-MineSplat is a client-side Fabric mod for Minecraft 1.21.1. It uploads an image
-to a user-run TripoSplat API v1, requests a fixed 32,768-Gaussian model,
-voxelizes it, maps TSVOX v2 colors to safe vanilla blocks in OKLab, and exports
-either a `.litematic` or an optional Chisels & Bits miniature.
+MineSplat is a client-side Fabric mod for Minecraft 1.21.1. It turns an image
+or text prompt into a fixed 32,768-Gaussian model, voxelizes it, maps TSVOX v2 colors to safe
+vanilla blocks in OKLab, and exports either a `.litematic` or an optional
+Chisels & Bits miniature.
 
-The server is not bundled or started by the mod. MineSplat accepts any HTTP or
-HTTPS base URL supplied by the player.
+Inference can use either a user-supplied remote TripoSplat API v1 or the
+TripoSplatVulkan runtime bundled in the mod. Local mode starts that runtime as a
+loopback REST sidecar, so both modes use the same API client and generation
+workflow. Local inference is available on Windows and Linux x86-64, requires a
+Vulkan 1.2-capable GPU with a current driver, and has no CPU fallback. Other
+platforms retain remote mode.
 
 ## Locked runtime
 
@@ -22,8 +26,11 @@ HTTPS base URL supplied by the player.
 ## Install and use
 
 See the bilingual [user guide](docs/USER_GUIDE.md). The short version is:
-import the generated `.mrpack` into Prism Launcher, start a world and your API,
-press `M + G`, choose an image, and create the schematic.
+import the generated `.mrpack` into Prism Launcher, start a world, press
+`M + G`, and choose Local or Remote inference. Local mode downloads and verifies
+the pinned base model snapshot on first use. The separate Z-Image prompt models
+are optional and download only when explicitly requested; no model weights are
+embedded in the JAR.
 
 ## Build
 
@@ -34,12 +41,20 @@ press `M + G`, choose an image, and create the schematic.
 
 Build outputs:
 
-- `build/libs/minesplat-fabric-1.21.1-0.2.0.jar`
-- `build/distributions/minesplat-prism-1.21.1-0.2.0.mrpack`
+- `build/libs/minesplat-fabric-1.21.1-0.4.0.jar`
+- `build/distributions/minesplat-prism-1.21.1-0.4.0.mrpack`
 
 Run a development client with `./gradlew runClient`. Gradle 8.9 and Java 21 are
 required; the included wrapper pins Gradle. Use `./gradlew runClientCnb` for a
 development run that copies the optional C&B distribution into `run-cnb/mods`.
+
+The universal JAR contains the official Linux and Windows x86-64 runtime assets
+from TripoSplatVulkan release `v0.2.0`, source commit
+`4bb05dec707f1f34f47aac2d679c1bd7021eb779`. The submodule lives at
+`third_party/TripoSplatVulkan`; initialize it with
+`git submodule update --init --recursive`. Native compilation is not part of
+the MineSplat build. `validateTripoSplatRuntime` verifies every bundled runtime
+file against `runtime-manifest.json` during `check`.
 
 The development-only `tools/PaletteAverage.java` calculates numeric face colors
 from legally installed vanilla textures. Only numeric averages in
@@ -48,7 +63,8 @@ from legally installed vanilla textures. Only numeric averages in
 ## API contract
 
 Generation always sends `num_gaussians=32768`, `steps=20`, `guidance=3.0`, and
-`erode_radius=1`. Only the seed is user-configurable. The voxel presets change
+`erode_radius=1`. Prompt generation additionally uses a 1024×1024 image and
+eight Z-Image steps. Only the prompt and seed are user-configurable. The voxel presets change
 only resolution (32, 64, 128, 256, 512, and 1024). This matches the TripoSplat
 server maximum. The 1024 preset is exceptionally heavy and benefits from at
 least 12–16 GiB allocated to the Prism instance.
@@ -56,6 +72,16 @@ least 12–16 GiB allocated to the Prism instance.
 The client validates `/health` as `triposplat-vulkan` API `v1`, uses asynchronous
 HTTP and polling, validates TSVOX v2 before touching Litematica, and never
 overwrites an existing schematic or MineSplat blueprint.
+
+Local models are downloaded directly by the mod with resumable HTTP transfers,
+size checks, and SHA-256 verification. The base snapshot is pinned to revision
+`de3b99ab2627d565a8d5fc40f2db52557b82b974`; three files are normalized by the
+bundled `v0.2.0` converter after download. The optional prompt set contains the
+Z-Image diffusion model, Qwen text encoder, and VAE (6,696,835,812 bytes).
+The default directory is
+`minecraft/minesplat/models/<revision>/`; a custom directory can be selected in
+the MineSplat screen. Switching modes never silently falls back to the other
+backend.
 
 ## Optional Chisels & Bits output
 
@@ -72,4 +98,5 @@ if placement fails.
 
 ## License
 
-MIT
+MineSplat is MIT licensed. Bundled TripoSplatVulkan and dependency licenses and
+notices are included under `assets/minesplat/triposplat/licenses/` in the JAR.

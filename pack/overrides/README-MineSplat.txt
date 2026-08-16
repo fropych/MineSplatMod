@@ -1,6 +1,11 @@
 MineSplat is a client-only mod.
 
-Open a world, start your TripoSplat API, then press M + G.
+Open a world, then press M + G.
+Choose Local inference on Windows/Linux x86-64 to install the pinned base models and
+run the bundled Vulkan runtime, or choose Remote and enter a TripoSplat API URL.
+Prompt generation uses a separate optional model download from the second model button.
+Local mode requires a Vulkan 1.2-capable GPU and a current driver; there is no
+CPU fallback.
 Schematics are written to schematics/minesplat/.
 
 Optional Chisels & Bits output:

@@ -5,9 +5,33 @@ immutable snapshot, so closing a screen cannot cancel network or conversion
 work. Java `HttpClient`, a scheduled polling executor, and a dedicated
 conversion executor keep work off the render thread.
 
+`InferenceTarget` makes the backend explicit. A remote target creates the
+normal API client immediately. A local target asks `LocalRuntimeManager` to
+verify/extract the bundled platform runtime, start `triposplat-vulkan serve` on
+a randomly allocated `127.0.0.1` port, and wait for API v1 health. From that
+point onward the controller uses exactly the same REST calls for both modes;
+there is no in-process native interface and no automatic remote/local fallback.
+
 ```text
-image upload
-  -> generation job (32,768 Gaussians)
+InferenceTarget
+  -> Remote: user HTTP/HTTPS base URL -------------------+
+  -> Local: bundled sidecar -> loopback REST API v1 ----+-> MineSplatController
+```
+
+`LocalModelManager` exposes independent CORE and TEXT snapshots. CORE contains
+the five image-to-3D weights and is sufficient to start the local server. After
+download, the bundled executable's `download` command atomically normalizes
+three CORE files to their pinned F16/I32 hashes. TEXT contains the optional
+Z-Image diffusion, Qwen encoder, and VAE weights and is downloaded only through
+its explicit UI action. Both sets verify size and SHA-256 off the render thread,
+resume `.part` files with HTTP Range, and remain outside the JAR.
+The local process is stopped during client shutdown and when the selected mode,
+model directory, or Vulkan device changes.
+
+```text
+image upload -> generation job -------------------------+
+prompt -> text-generation job -> discard generated PNG -+
+  -> 32,768 Gaussians
   -> keep PLY for the session
   -> voxelization job (32 / 64 / 128 / 256 / 512 / 1024)
   -> strict TSVOX v2 validation
@@ -38,3 +62,9 @@ the public C&B mutator API in bounded server-tick batches.
 Artifacts are deleted best-effort according to the API contract. The generation
 PLY remains on the server while the current client session can reuse it, then is
 deleted on explicit session finish, a new generation, or client shutdown.
+
+One universal JAR carries the independently hashed official Windows and Linux
+x86-64 assets from TripoSplatVulkan release `v0.2.0`, source commit
+`4bb05dec707f1f34f47aac2d679c1bd7021eb779`. The upstream project remains an
+unmodified Git submodule pinned to the same commit. Unsupported OS/CPU pairs
+expose only Remote mode; local inference is Vulkan-only and has no CPU backend.

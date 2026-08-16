@@ -11,6 +11,9 @@ import io.github.yromko.minesplat.config.OutputMode;
 import io.github.yromko.minesplat.config.PaletteProfile;
 import io.github.yromko.minesplat.config.VoxelPreset;
 import io.github.yromko.minesplat.litematica.SchematicExporter;
+import io.github.yromko.minesplat.inference.InferenceTarget;
+import io.github.yromko.minesplat.inference.PreparedEndpoint;
+import io.github.yromko.minesplat.inference.TripoSplatEndpointResolver;
 import io.github.yromko.minesplat.palette.BlockPalette;
 import io.github.yromko.minesplat.palette.ColorMatcher;
 import io.github.yromko.minesplat.palette.MatchedVoxels;
@@ -33,6 +36,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public final class MineSplatController implements AutoCloseable {
     private static final long[] POLL_RETRY_SECONDS = {1, 2, 4};
@@ -45,6 +49,7 @@ public final class MineSplatController implements AutoCloseable {
     private final SchematicExporter litematica;
     private final CnbBlueprintExporter cnbBlueprints;
     private final CnbIntegration cnb;
+    private final TripoSplatEndpointResolver endpoints;
     private final CopyOnWriteArrayList<Consumer<GenerationSnapshot>> listeners =
             new CopyOnWriteArrayList<>();
 
@@ -57,7 +62,8 @@ public final class MineSplatController implements AutoCloseable {
                 palette,
                 litematica,
                 null,
-                new UnavailableCnbIntegration("Chisels & Bits is not installed"));
+                new UnavailableCnbIntegration("Chisels & Bits is not installed"),
+                new TripoSplatEndpointResolver(null));
     }
 
     public MineSplatController(
@@ -66,10 +72,22 @@ public final class MineSplatController implements AutoCloseable {
             CnbBlueprintExporter cnbBlueprints,
             CnbIntegration cnb
     ) {
+        this(palette, litematica, cnbBlueprints, cnb,
+                new TripoSplatEndpointResolver(null));
+    }
+
+    public MineSplatController(
+            BlockPalette palette,
+            SchematicExporter litematica,
+            CnbBlueprintExporter cnbBlueprints,
+            CnbIntegration cnb,
+            TripoSplatEndpointResolver endpoints
+    ) {
         this.palette = palette;
         this.litematica = litematica;
         this.cnbBlueprints = cnbBlueprints;
         this.cnb = cnb;
+        this.endpoints = endpoints;
         this.worker = Executors.newSingleThreadExecutor(daemonFactory("MineSplat worker"));
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
                 daemonFactory("MineSplat polling"));
@@ -80,23 +98,31 @@ public final class MineSplatController implements AutoCloseable {
     }
 
     public synchronized boolean canReuseGeneration(
-            String serverUrl,
-            Path image,
+            InferenceTarget target,
+            GenerationSource source,
             long seed
     ) {
-        if (session == null || session.plyArtifactId == null || image == null) {
+        if (session == null || session.plyArtifactId == null || source == null) {
             return false;
         }
         GenerationRequest previous = session.request;
         try {
             return previous.seed() == seed
-                    && previous.image().toAbsolutePath().normalize()
-                    .equals(image.toAbsolutePath().normalize())
-                    && TripoSplatApiClient.normalizeBaseUrl(previous.serverUrl())
-                    .equals(TripoSplatApiClient.normalizeBaseUrl(serverUrl));
+                    && previous.source().equals(source)
+                    && session.backendIdentity != null
+                    && session.backendIdentity.equals(target.identity());
         } catch (RuntimeException exception) {
             return false;
         }
+    }
+
+    public synchronized boolean canReuseGeneration(
+            InferenceTarget target,
+            Path image,
+            long seed
+    ) {
+        return image != null && canReuseGeneration(
+                target, new GenerationSource.Image(image), seed);
     }
 
     public synchronized boolean hasSession() {
@@ -109,14 +135,8 @@ public final class MineSplatController implements AutoCloseable {
         return () -> listeners.remove(listener);
     }
 
-    public CompletableFuture<ConnectionInfo> testConnection(String serverUrl) {
-        final TripoSplatApiClient api;
-        try {
-            api = new TripoSplatApiClient(serverUrl);
-        } catch (RuntimeException exception) {
-            return CompletableFuture.failedFuture(exception);
-        }
-        return api.testConnection().whenComplete((info, error) -> {
+    public CompletableFuture<ConnectionInfo> testConnection(InferenceTarget target) {
+        return endpoints.test(target).whenComplete((info, error) -> {
             if (error == null) {
                 String device = info.selectedDevice() == null
                         ? "No selected device"
@@ -133,27 +153,24 @@ public final class MineSplatController implements AutoCloseable {
                     new IllegalStateException("A MineSplat operation is already running"));
         }
         try {
-            ImageFiles.validate(request.image());
+            if (request.source() instanceof GenerationSource.Image image) {
+                ImageFiles.validate(image.path());
+            }
             if (request.seed() < 0) {
                 throw new IllegalArgumentException("Seed must be non-negative");
             }
-            TripoSplatApiClient.normalizeBaseUrl(request.serverUrl());
+            request.target().identity();
         } catch (Exception exception) {
             return CompletableFuture.failedFuture(exception);
         }
 
         closeSessionArtifacts();
-        Session next;
-        try {
-            next = new Session(request, new TripoSplatApiClient(request.serverUrl()));
-        } catch (RuntimeException exception) {
-            return CompletableFuture.failedFuture(exception);
-        }
+        Session next = new Session(request);
         session = next;
         pausedPoll = null;
         update(new GenerationSnapshot(
                 GenerationState.UPLOADING,
-                "Uploading image",
+                "Preparing inference backend",
                 null,
                 snapshot.device(),
                 null,
@@ -166,13 +183,26 @@ public final class MineSplatController implements AutoCloseable {
                 request.outputMode()));
         next.outputMode = request.outputMode();
 
-        CompletableFuture<Path> flow = next.api.uploadImage(request.image())
-                .thenApply(artifact -> {
+        boolean prompt = request.source() instanceof GenerationSource.Prompt;
+        CompletableFuture<Path> flow = endpoints.prepare(request.target(), prompt)
+                .thenCompose(endpoint -> {
                     ensureActive(next);
-                    next.inputArtifactId = required(artifact.id(), "uploaded input artifact");
-                    return next.inputArtifactId;
+                    next.attach(endpoint);
+                    if (request.source() instanceof GenerationSource.Image image) {
+                        transition(GenerationState.UPLOADING, "Uploading image");
+                        return next.api.uploadImage(image.path())
+                                .thenCompose(artifact -> {
+                                    ensureActive(next);
+                                    next.inputArtifactId = required(
+                                            artifact.id(), "uploaded input artifact");
+                                    return next.api.enqueueGeneration(
+                                            next.inputArtifactId, request.seed());
+                                });
+                    }
+                    GenerationSource.Prompt text = (GenerationSource.Prompt) request.source();
+                    transition(GenerationState.UPLOADING, "Submitting prompt");
+                    return next.api.enqueueTextGeneration(text.text(), request.seed());
                 })
-                .thenCompose(inputId -> next.api.enqueueGeneration(inputId, request.seed()))
                 .thenCompose(queued -> {
                     ensureActive(next);
                     next.currentJobId = required(queued.job_id(), "generation job");
@@ -274,15 +304,22 @@ public final class MineSplatController implements AutoCloseable {
         ensureActive(current);
         current.plyArtifactId = required(job.artifact("gaussian_ply"), "generation PLY artifact");
         current.splatArtifactId = job.artifact("splat");
+        if (current.request.source() instanceof GenerationSource.Prompt) {
+            current.generatedImageArtifactId = required(
+                    job.artifact("image"), "generated image artifact");
+        }
         String input = current.inputArtifactId;
         String splat = current.splatArtifactId;
+        String generatedImage = current.generatedImageArtifactId;
         current.inputArtifactId = null;
         current.splatArtifactId = null;
+        current.generatedImageArtifactId = null;
         current.currentJobId = null;
         current.stage = null;
         return CompletableFuture.allOf(
                 current.api.deleteArtifact(input),
-                current.api.deleteArtifact(splat));
+                current.api.deleteArtifact(splat),
+                current.api.deleteArtifact(generatedImage));
     }
 
     private CompletableFuture<Path> voxelize(
@@ -405,6 +442,11 @@ public final class MineSplatController implements AutoCloseable {
         current.api.getJob(current.currentJobId).whenComplete((job, failure) -> {
             if (failure != null) {
                 Throwable cause = unwrap(failure);
+                String runtimeFailure = current.runtimeFailure.get();
+                if (runtimeFailure != null && !runtimeFailure.isBlank()) {
+                    result.completeExceptionally(new JobFailedException(runtimeFailure));
+                    return;
+                }
                 if (transientNetworkFailure(cause)) {
                     if (transportRetry < POLL_RETRY_SECONDS.length) {
                         long delay = POLL_RETRY_SECONDS[transportRetry];
@@ -501,11 +543,16 @@ public final class MineSplatController implements AutoCloseable {
         if (old == null) {
             return;
         }
+        if (old.api == null) {
+            return;
+        }
         old.api.deleteArtifact(old.inputArtifactId);
+        old.api.deleteArtifact(old.generatedImageArtifactId);
         old.api.deleteArtifact(old.splatArtifactId);
         old.api.deleteArtifact(old.outputArtifactId);
         old.api.deleteArtifact(old.plyArtifactId);
         old.inputArtifactId = null;
+        old.generatedImageArtifactId = null;
         old.splatArtifactId = null;
         old.outputArtifactId = null;
         old.plyArtifactId = null;
@@ -594,6 +641,7 @@ public final class MineSplatController implements AutoCloseable {
         closeSessionArtifacts();
         worker.shutdownNow();
         scheduler.shutdownNow();
+        endpoints.close();
     }
 
     private enum JobStage {
@@ -603,12 +651,15 @@ public final class MineSplatController implements AutoCloseable {
 
     private static final class Session {
         private final GenerationRequest request;
-        private final TripoSplatApiClient api;
+        private TripoSplatApiClient api;
+        private String backendIdentity;
+        private Supplier<String> runtimeFailure = () -> null;
         private boolean cancelled;
         private boolean lastJobWasQueued;
         private JobStage stage;
         private String currentJobId;
         private String inputArtifactId;
+        private String generatedImageArtifactId;
         private String plyArtifactId;
         private String splatArtifactId;
         private String outputArtifactId;
@@ -616,9 +667,14 @@ public final class MineSplatController implements AutoCloseable {
         private CompletableFuture<Path> activeFlow;
         private OutputMode outputMode = OutputMode.LITEMATICA;
 
-        private Session(GenerationRequest request, TripoSplatApiClient api) {
+        private Session(GenerationRequest request) {
             this.request = request;
-            this.api = api;
+        }
+
+        private void attach(PreparedEndpoint endpoint) {
+            api = endpoint.api();
+            backendIdentity = endpoint.identity();
+            runtimeFailure = endpoint.runtimeFailure();
         }
     }
 

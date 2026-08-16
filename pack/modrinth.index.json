@@ -1,9 +1,9 @@
 {
   "formatVersion": 1,
   "game": "minecraft",
-  "versionId": "0.2.0",
-  "name": "MineSplat 0.2.0",
-  "summary": "Client-side image workflow for Litematica and optional Chisels & Bits.",
+  "versionId": "0.4.0",
+  "name": "MineSplat 0.4.0",
+  "summary": "Client-side image/prompt workflow for Litematica and optional Chisels & Bits.",
   "files": [
     {
       "path": "mods/fabric-api-0.107.0+1.21.1.jar",

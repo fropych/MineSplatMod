@@ -1,17 +1,27 @@
 package io.github.yromko.minesplat.gui;
 
-import io.github.yromko.minesplat.api.TripoSplatApiClient;
+import io.github.yromko.minesplat.api.ApiModels.Device;
 import io.github.yromko.minesplat.client.MineSplatDraft;
 import io.github.yromko.minesplat.cnb.CnbBlueprintStore;
 import io.github.yromko.minesplat.cnb.CnbPlacementController;
 import io.github.yromko.minesplat.config.MineSplatConfig;
+import io.github.yromko.minesplat.config.GenerationSourceMode;
+import io.github.yromko.minesplat.config.InferenceMode;
 import io.github.yromko.minesplat.config.OutputMode;
 import io.github.yromko.minesplat.config.PaletteProfile;
 import io.github.yromko.minesplat.config.VoxelPreset;
 import io.github.yromko.minesplat.palette.BlockPalette;
+import io.github.yromko.minesplat.inference.InferenceTarget;
+import io.github.yromko.minesplat.inference.LocalModelManager;
+import io.github.yromko.minesplat.inference.LocalModelSnapshot;
+import io.github.yromko.minesplat.inference.LocalModelSet;
+import io.github.yromko.minesplat.inference.LocalModelState;
+import io.github.yromko.minesplat.inference.LocalRuntimeManager;
+import io.github.yromko.minesplat.inference.LocalRuntimeSnapshot;
 import io.github.yromko.minesplat.util.FileNames;
 import io.github.yromko.minesplat.util.ImageFiles;
 import io.github.yromko.minesplat.workflow.GenerationRequest;
+import io.github.yromko.minesplat.workflow.GenerationSource;
 import io.github.yromko.minesplat.workflow.GenerationSnapshot;
 import io.github.yromko.minesplat.workflow.GenerationState;
 import io.github.yromko.minesplat.workflow.MineSplatController;
@@ -30,6 +40,7 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
 public final class MineSplatScreen extends Screen {
@@ -49,10 +60,26 @@ public final class MineSplatScreen extends Screen {
     private final MineSplatDraft draft;
     private final CnbPlacementController cnbPlacement;
     private final CnbBlueprintStore cnbBlueprints;
+    private final LocalModelManager localModels;
+    private final LocalRuntimeManager localRuntime;
     private volatile GenerationSnapshot snapshot;
+    private volatile LocalModelSnapshot modelSnapshot;
+    private volatile LocalModelSnapshot textModelSnapshot;
+    private volatile LocalRuntimeSnapshot runtimeSnapshot;
     private AutoCloseable subscription;
+    private AutoCloseable modelSubscription;
+    private AutoCloseable textModelSubscription;
+    private AutoCloseable runtimeSubscription;
 
     private TextFieldWidget serverUrl;
+    private CyclingButtonWidget<InferenceMode> inferenceMode;
+    private ButtonWidget targetButton;
+    private ButtonWidget modelFolderButton;
+    private ButtonWidget localDeviceButton;
+    private ButtonWidget coreModelsButton;
+    private ButtonWidget textModelsButton;
+    private CyclingButtonWidget<GenerationSourceMode> sourceMode;
+    private TextFieldWidget prompt;
     private TextFieldWidget schematicName;
     private TextFieldWidget seed;
     private CyclingButtonWidget<VoxelPreset> preset;
@@ -70,6 +97,7 @@ public final class MineSplatScreen extends Screen {
     private boolean compactLayout;
     private int titleY;
     private int stepperY;
+    private List<Device> availableDevices = List.of();
 
     public MineSplatScreen(
             Screen parent,
@@ -78,7 +106,9 @@ public final class MineSplatScreen extends Screen {
             MineSplatController controller,
             MineSplatDraft draft,
             CnbPlacementController cnbPlacement,
-            CnbBlueprintStore cnbBlueprints
+            CnbBlueprintStore cnbBlueprints,
+            LocalModelManager localModels,
+            LocalRuntimeManager localRuntime
     ) {
         super(Text.translatable("minesplat.title"));
         this.parent = parent;
@@ -88,41 +118,70 @@ public final class MineSplatScreen extends Screen {
         this.draft = draft;
         this.cnbPlacement = cnbPlacement;
         this.cnbBlueprints = cnbBlueprints;
+        this.localModels = localModels;
+        this.localRuntime = localRuntime;
         this.snapshot = controller.snapshot();
+        this.modelSnapshot = localModels.snapshot();
+        this.textModelSnapshot = localModels.textSnapshot();
+        this.runtimeSnapshot = localRuntime.snapshot();
     }
 
     @Override
     protected void init() {
         closeSubscription();
         subscription = controller.listen(value -> snapshot = value);
+        modelSubscription = localModels.listen(value -> modelSnapshot = value);
+        textModelSubscription = localModels.listenText(value -> textModelSnapshot = value);
+        runtimeSubscription = localRuntime.listen(value -> runtimeSnapshot = value);
         int panelWidth = Math.min(560, width - 20);
         int left = (width - panelWidth) / 2;
         int gap = 6;
         int testWidth = 116;
-        compactLayout = height < 340;
+        compactLayout = height < 380;
         int widgetHeight = compactLayout ? 18 : 20;
         int serverY = compactLayout ? 18 : 35;
-        int imageY = compactLayout ? 38 : 61;
-        int identityY = compactLayout ? 58 : 87;
-        int optionsY = compactLayout ? 78 : 113;
-        int outputY = compactLayout ? 98 : 139;
-        int blacklistY = compactLayout ? 98 : 165;
-        int actionsY = compactLayout ? 118 : 191;
-        int placementY = compactLayout ? 138 : 217;
+        int deviceY = compactLayout ? 38 : 61;
+        int modelsY = compactLayout ? 58 : 87;
+        int imageY = compactLayout ? 78 : 113;
+        int identityY = compactLayout ? 98 : 139;
+        int optionsY = compactLayout ? 118 : 165;
+        int outputY = compactLayout ? 138 : 191;
+        int blacklistY = compactLayout ? 138 : 217;
+        int actionsY = compactLayout ? 158 : 243;
+        int placementY = compactLayout ? 178 : 269;
         titleY = compactLayout ? 4 : 15;
         stepperY = compactLayout
                 ? Math.max(placementY + widgetHeight + 5, height - 44)
-                : 249;
+                : 275;
 
+        int modeWidth = 90;
+        int folderWidth = 26;
+        inferenceMode = addDrawableChild(CyclingButtonWidget.<InferenceMode>builder(
+                        value -> Text.translatable("minesplat.inference." + value.id()))
+                .values(InferenceMode.values())
+                .initially(config.inferenceMode())
+                .build(left, serverY, modeWidth, widgetHeight,
+                        Text.translatable("minesplat.inference"),
+                        (button, value) -> switchInferenceMode(value)));
         serverUrl = new TextFieldWidget(
-                textRenderer, left, serverY, panelWidth - testWidth - gap, widgetHeight,
+                textRenderer,
+                left + modeWidth + gap,
+                serverY,
+                panelWidth - modeWidth - testWidth - folderWidth - gap * 3,
+                widgetHeight,
                 Text.translatable("minesplat.server_url"));
         serverUrl.setMaxLength(2048);
-        serverUrl.setText(config.serverUrl());
-        serverUrl.setPlaceholder(Text.translatable("minesplat.server_url"));
         addDrawableChild(serverUrl);
-        addDrawableChild(ButtonWidget.builder(
-                        Text.translatable("minesplat.test_api"), ignored -> testApi())
+        modelFolderButton = addDrawableChild(ButtonWidget.builder(
+                        Text.literal("…"), ignored -> chooseModelDirectory())
+                .dimensions(
+                        left + panelWidth - testWidth - folderWidth - gap,
+                        serverY,
+                        folderWidth,
+                        widgetHeight)
+                .build());
+        targetButton = addDrawableChild(ButtonWidget.builder(
+                        Text.translatable("minesplat.test_api"), ignored -> targetAction())
                 .dimensions(
                         left + panelWidth - testWidth,
                         serverY,
@@ -130,11 +189,49 @@ public final class MineSplatScreen extends Screen {
                         widgetHeight)
                 .build());
 
-        imageButton = addDrawableChild(ButtonWidget.builder(
-                        imageLabel(), ignored -> chooseImage())
-                .dimensions(left, imageY, panelWidth, widgetHeight).build());
+        localDeviceButton = addDrawableChild(ButtonWidget.builder(
+                        localDeviceLabel(), ignored -> cycleLocalDevice())
+                .dimensions(left, deviceY, panelWidth, widgetHeight).build());
+        applyTargetMode();
 
         int half = (panelWidth - gap) / 2;
+        coreModelsButton = addDrawableChild(ButtonWidget.builder(
+                        Text.translatable("minesplat.models.core.install"),
+                        ignored -> modelAction(LocalModelSet.CORE))
+                .dimensions(left, modelsY, half, widgetHeight).build());
+        textModelsButton = addDrawableChild(ButtonWidget.builder(
+                        Text.translatable("minesplat.models.text.install"),
+                        ignored -> modelAction(LocalModelSet.TEXT))
+                .dimensions(left + half + gap, modelsY, half, widgetHeight).build());
+
+        int sourceWidth = 104;
+        sourceMode = addDrawableChild(CyclingButtonWidget.<GenerationSourceMode>builder(
+                        value -> Text.translatable("minesplat.source." + value.id()))
+                .values(GenerationSourceMode.values())
+                .initially(draft.sourceMode())
+                .build(left, imageY, sourceWidth, widgetHeight,
+                        Text.translatable("minesplat.source"),
+                        (button, value) -> {
+                            draft.sourceMode(value);
+                            updateSourceControls();
+                        }));
+        imageButton = addDrawableChild(ButtonWidget.builder(
+                        imageLabel(), ignored -> chooseImage())
+                .dimensions(left + sourceWidth + gap, imageY,
+                        panelWidth - sourceWidth - gap, widgetHeight).build());
+        prompt = new TextFieldWidget(
+                textRenderer,
+                left + sourceWidth + gap,
+                imageY,
+                panelWidth - sourceWidth - gap,
+                widgetHeight,
+                Text.translatable("minesplat.prompt"));
+        prompt.setMaxLength(8192);
+        prompt.setText(draft.prompt());
+        prompt.setPlaceholder(Text.translatable("minesplat.prompt.placeholder"));
+        addDrawableChild(prompt);
+        updateSourceControls();
+
         schematicName = new TextFieldWidget(
                 textRenderer, left, identityY, half, widgetHeight,
                 Text.translatable("minesplat.name"));
@@ -264,17 +361,24 @@ public final class MineSplatScreen extends Screen {
         GenerationSnapshot value = snapshot;
         boolean hasWorld = client != null && client.world != null && client.player != null;
         boolean validSeed = parseSeed() != null;
-        boolean validUrl;
+        boolean validTarget;
         try {
-            TripoSplatApiClient.normalizeBaseUrl(serverUrl.getText());
-            validUrl = true;
+            inferenceTarget();
+            validTarget = inferenceMode.getValue() == InferenceMode.REMOTE
+                    || (localRuntime.supported()
+                    && modelSnapshot.state() == LocalModelState.READY);
         } catch (RuntimeException exception) {
-            validUrl = false;
+            validTarget = false;
         }
         boolean outputAvailable = outputMode.getValue() != OutputMode.CHISELS_AND_BITS
                 || cnbPlacement.integration().available();
-        createButton.active = hasWorld && draft.image() != null && validSeed
-                && validUrl && outputAvailable && !value.state().active();
+        boolean validSource = validSource();
+        boolean localPromptReady = inferenceMode.getValue() != InferenceMode.LOCAL
+                || sourceMode.getValue() != GenerationSourceMode.PROMPT
+                || textModelSnapshot.state() == LocalModelState.READY;
+        createButton.active = hasWorld && validSource && validSeed
+                && validTarget && outputAvailable && !value.state().active();
+        createButton.active &= localPromptReady;
         cancelButton.active = value.canCancel();
         resumeButton.active = value.pollingPaused();
         finishSessionButton.active = controller.hasSession() && !value.state().active();
@@ -289,21 +393,145 @@ public final class MineSplatScreen extends Screen {
                         ? "minesplat.generate_blueprint"
                         : "minesplat.generate"));
         imageButton.setMessage(imageLabel());
+        inferenceMode.active = !value.state().active();
+        sourceMode.active = !value.state().active();
+        prompt.active = !value.state().active();
+        updateSourceControls();
+        boolean local = inferenceMode.getValue() == InferenceMode.LOCAL;
+        modelFolderButton.visible = local;
+        modelFolderButton.active = local
+                && !localModels.installing()
+                && !value.state().active();
+        localDeviceButton.visible = local;
+        localDeviceButton.active = local
+                && modelSnapshot.state() == LocalModelState.READY
+                && !value.state().active();
+        localDeviceButton.setMessage(localDeviceLabel());
+        coreModelsButton.visible = local;
+        textModelsButton.visible = local;
+        updateModelButton(coreModelsButton, LocalModelSet.CORE, modelSnapshot, value);
+        updateModelButton(textModelsButton, LocalModelSet.TEXT, textModelSnapshot, value);
+        serverUrl.active = !value.state().active()
+                && (!local || !localModels.installing());
+        if (!local) {
+            targetButton.setMessage(Text.translatable("minesplat.test_api"));
+            targetButton.active = !value.state().active();
+        } else {
+            targetButton.setMessage(Text.translatable("minesplat.local.test"));
+            targetButton.active = modelSnapshot.state() == LocalModelState.READY
+                    && !value.state().active() && !localModels.installing();
+        }
+    }
+
+    private boolean validSource() {
+        if (sourceMode.getValue() == GenerationSourceMode.IMAGE) {
+            return draft.image() != null;
+        }
+        try {
+            io.github.yromko.minesplat.api.TripoSplatApiClient.validatePrompt(
+                    prompt.getText());
+            return true;
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    private void updateSourceControls() {
+        if (sourceMode == null || imageButton == null || prompt == null) {
+            return;
+        }
+        boolean image = sourceMode.getValue() == GenerationSourceMode.IMAGE;
+        imageButton.visible = image;
+        prompt.visible = !image;
+    }
+
+    private void updateModelButton(
+            ButtonWidget button,
+            LocalModelSet set,
+            LocalModelSnapshot models,
+            GenerationSnapshot generation
+    ) {
+        boolean activeInstall = localModels.installing()
+                && localModels.activeSet() == set;
+        if (activeInstall) {
+            button.setMessage(Text.translatable("minesplat.models.cancel"));
+            button.active = true;
+            return;
+        }
+        String key = set == LocalModelSet.CORE ? "core" : "text";
+        if (models.state() == LocalModelState.READY) {
+            button.setMessage(Text.translatable("minesplat.models." + key + ".ready"));
+        } else {
+            button.setMessage(Text.translatable("minesplat.models." + key + ".install"));
+        }
+        button.active = localRuntime.supported()
+                && models.state() != LocalModelState.CHECKING
+                && models.state() != LocalModelState.READY
+                && !localModels.installing()
+                && !generation.state().active();
+    }
+
+    private void targetAction() {
+        if (inferenceMode.getValue() != InferenceMode.LOCAL) {
+            testApi();
+            return;
+        }
+        syncModelDirectory().whenComplete((ready, failure) -> {
+            if (failure != null) {
+                client.execute(() -> {
+                    localMessage = usefulMessage(failure);
+                    localMessageError = true;
+                });
+            } else if (ready) {
+                client.execute(this::testApi);
+            } else {
+                client.execute(() -> {
+                    localMessage = Text.translatable(
+                            "minesplat.local.status.models_missing").getString();
+                    localMessageError = true;
+                });
+            }
+        });
+    }
+
+    private void modelAction(LocalModelSet set) {
+        if (localModels.installing() && localModels.activeSet() == set) {
+            localModels.cancelInstall();
+            return;
+        }
+        syncModelDirectory().whenComplete((ignored, failure) -> {
+            if (failure != null) {
+                client.execute(() -> {
+                    localMessage = usefulMessage(failure);
+                    localMessageError = true;
+                });
+                return;
+            }
+            client.execute(() -> {
+                localMessage = null;
+                localMessageError = false;
+                localRuntime.stop();
+                localModels.install(set);
+            });
+        });
     }
 
     private void testApi() {
         try {
-            String normalized = TripoSplatApiClient.normalizeBaseUrl(serverUrl.getText());
-            serverUrl.setText(normalized);
+            InferenceTarget target = inferenceTarget();
+            if (target instanceof InferenceTarget.Remote remote) {
+                serverUrl.setText(remote.baseUrl());
+            }
             persistFields();
             localMessage = Text.translatable("minesplat.api_testing").getString();
             localMessageError = false;
-            controller.testConnection(normalized).whenComplete((info, failure) ->
+            controller.testConnection(target).whenComplete((info, failure) ->
                     client.execute(() -> {
                         if (failure != null) {
                             localMessage = usefulMessage(failure);
                             localMessageError = true;
                         } else {
+                            availableDevices = info.devices();
                             String device = info.selectedDevice() == null
                                     ? Text.translatable("minesplat.device_none").getString()
                                     : info.selectedDevice().name();
@@ -344,6 +572,9 @@ public final class MineSplatScreen extends Screen {
     @Override
     public void filesDragged(List<Path> paths) {
         if (!paths.isEmpty()) {
+            sourceMode.setValue(GenerationSourceMode.IMAGE);
+            draft.sourceMode(GenerationSourceMode.IMAGE);
+            updateSourceControls();
             selectImage(paths.getFirst());
         }
     }
@@ -369,12 +600,13 @@ public final class MineSplatScreen extends Screen {
 
     private void generate() {
         Long parsedSeed = parseSeed();
-        if (parsedSeed == null || draft.image() == null) {
+        if (parsedSeed == null) {
             return;
         }
+        GenerationSource source;
         try {
-            ImageFiles.validate(draft.image());
-            TripoSplatApiClient.normalizeBaseUrl(serverUrl.getText());
+            source = generationSource();
+            inferenceTarget();
             persistFields();
         } catch (Exception exception) {
             localMessage = exception.getMessage();
@@ -384,7 +616,8 @@ public final class MineSplatScreen extends Screen {
 
         String name = FileNames.sanitize(schematicName.getText());
         draft.schematicName(name);
-        if (controller.canReuseGeneration(serverUrl.getText(), draft.image(), parsedSeed)) {
+        InferenceTarget target = inferenceTarget();
+        if (controller.canReuseGeneration(target, source, parsedSeed)) {
             controller.rebuildOrRevoxelize(
                     name,
                     preset.getValue(),
@@ -393,8 +626,8 @@ public final class MineSplatScreen extends Screen {
                     outputMode.getValue());
         } else {
             controller.start(new GenerationRequest(
-                    serverUrl.getText(),
-                    draft.image(),
+                    target,
+                    source,
                     name,
                     parsedSeed,
                     preset.getValue(),
@@ -403,6 +636,14 @@ public final class MineSplatScreen extends Screen {
                     outputMode.getValue()));
         }
         localMessage = null;
+    }
+
+    private GenerationSource generationSource() throws IOException {
+        if (sourceMode.getValue() == GenerationSourceMode.IMAGE) {
+            ImageFiles.validate(draft.image());
+            return new GenerationSource.Image(draft.image());
+        }
+        return new GenerationSource.Prompt(prompt.getText());
     }
 
     private Long parseSeed() {
@@ -415,7 +656,11 @@ public final class MineSplatScreen extends Screen {
     }
 
     private void persistFields() {
-        config.serverUrl(serverUrl.getText());
+        if (inferenceMode != null && inferenceMode.getValue() == InferenceMode.LOCAL) {
+            config.localModelDirectory(serverUrl.getText());
+        } else if (serverUrl != null) {
+            config.serverUrl(serverUrl.getText());
+        }
         Long value = parseSeed();
         if (value != null) {
             config.seed(value);
@@ -424,12 +669,124 @@ public final class MineSplatScreen extends Screen {
         config.paletteProfile(paletteProfile.getValue());
         config.outputMode(outputMode.getValue());
         draft.schematicName(schematicName.getText());
+        if (sourceMode != null) {
+            draft.sourceMode(sourceMode.getValue());
+        }
+        if (prompt != null) {
+            draft.prompt(prompt.getText());
+        }
         try {
             config.save();
         } catch (IOException exception) {
             localMessage = exception.getMessage();
             localMessageError = true;
         }
+    }
+
+    private void switchInferenceMode(InferenceMode value) {
+        InferenceMode previous = config.inferenceMode();
+        if (previous == value) {
+            return;
+        }
+        if (previous == InferenceMode.LOCAL) {
+            config.localModelDirectory(serverUrl.getText());
+        } else {
+            config.serverUrl(serverUrl.getText());
+        }
+        if (controller.hasSession() && !snapshot.state().active()) {
+            controller.finishSession();
+        }
+        localRuntime.stop();
+        config.inferenceMode(value);
+        applyTargetMode();
+        persistFields();
+    }
+
+    private void applyTargetMode() {
+        if (inferenceMode.getValue() == InferenceMode.LOCAL) {
+            serverUrl.setText(localModels.directory().toString());
+            serverUrl.setPlaceholder(Text.translatable("minesplat.models.directory"));
+        } else {
+            serverUrl.setText(config.serverUrl());
+            serverUrl.setPlaceholder(Text.translatable("minesplat.server_url"));
+        }
+    }
+
+    private InferenceTarget inferenceTarget() {
+        if (inferenceMode.getValue() == InferenceMode.LOCAL) {
+            Path entered = Path.of(serverUrl.getText()).toAbsolutePath().normalize();
+            if (!entered.equals(localModels.directory())) {
+                throw new IllegalStateException(
+                        Text.translatable("minesplat.models.apply_directory").getString());
+            }
+            return new InferenceTarget.Local(config.localDeviceIndex());
+        }
+        return new InferenceTarget.Remote(serverUrl.getText());
+    }
+
+    private CompletableFuture<Boolean> syncModelDirectory() {
+        try {
+            Path entered = Path.of(serverUrl.getText()).toAbsolutePath().normalize();
+            config.localModelDirectory(entered.toString());
+            if (entered.equals(localModels.directory())) {
+                return CompletableFuture.completedFuture(localModels.ready());
+            }
+            localRuntime.stop();
+            return localModels.setDirectory(entered);
+        } catch (RuntimeException exception) {
+            localMessage = usefulMessage(exception);
+            localMessageError = true;
+            return CompletableFuture.failedFuture(exception);
+        }
+    }
+
+    private void chooseModelDirectory() {
+        Thread picker = new Thread(() -> {
+            String selected = TinyFileDialogs.tinyfd_selectFolderDialog(
+                    Text.translatable("minesplat.models.choose_directory").getString(),
+                    localModels.directory().toString());
+            if (selected != null) {
+                client.execute(() -> {
+                    serverUrl.setText(Path.of(selected).toAbsolutePath().normalize().toString());
+                    syncModelDirectory();
+                });
+            }
+        }, "MineSplat model directory picker");
+        picker.setDaemon(true);
+        picker.start();
+    }
+
+    private void cycleLocalDevice() {
+        if (availableDevices.isEmpty()) {
+            testApi();
+            return;
+        }
+        int current = config.localDeviceIndex();
+        int position = 0;
+        for (int index = 0; index < availableDevices.size(); index++) {
+            if (availableDevices.get(index).index() == current) {
+                position = index;
+                break;
+            }
+        }
+        Device next = availableDevices.get((position + 1) % availableDevices.size());
+        if (controller.hasSession() && !snapshot.state().active()) {
+            controller.finishSession();
+        }
+        localRuntime.stop();
+        config.localDeviceIndex(next.index());
+        persistFields();
+    }
+
+    private Text localDeviceLabel() {
+        int index = config.localDeviceIndex();
+        String name = availableDevices.stream()
+                .filter(value -> value.index() == index)
+                .map(Device::name)
+                .findFirst()
+                .orElse(runtimeSnapshot != null && runtimeSnapshot.device() != null
+                        ? runtimeSnapshot.device() : "Vulkan device " + index);
+        return Text.translatable("minesplat.local.device", index, name);
     }
 
     private Text imageLabel() {
@@ -507,6 +864,12 @@ public final class MineSplatScreen extends Screen {
                     width / 2, textY, 0xffaa00);
             textY += 13;
         }
+        StatusLine localStatus = localInferenceStatus();
+        if (localStatus != null) {
+            context.drawCenteredTextWithShadow(
+                    textRenderer, localStatus.text(), width / 2, textY, localStatus.color());
+            textY += 13;
+        }
         if (localMessage != null) {
             context.drawCenteredTextWithShadow(
                     textRenderer, localMessage, width / 2, textY,
@@ -552,6 +915,10 @@ public final class MineSplatScreen extends Screen {
                     Text.literal(trim(localMessage, 90)),
                     localMessageError ? 0xff5555 : 0x55ff55);
         }
+        StatusLine localStatus = localInferenceStatus();
+        if (localStatus != null) {
+            return localStatus;
+        }
         if (value.error() != null) {
             return new StatusLine(
                     Text.literal(trim(value.error(), 90)), 0xff5555);
@@ -592,6 +959,71 @@ public final class MineSplatScreen extends Screen {
             return new StatusLine(
                     Text.literal(trim(value.outputFile().toString(), 90)),
                     0xa0a0a0);
+        }
+        return null;
+    }
+
+    private StatusLine localInferenceStatus() {
+        if (inferenceMode == null || inferenceMode.getValue() != InferenceMode.LOCAL) {
+            return null;
+        }
+        if (!localRuntime.supported()) {
+            return new StatusLine(
+                    Text.translatable(
+                            "minesplat.local.status.unsupported", localRuntime.platform()),
+                    0xff5555);
+        }
+        StatusLine core = modelSetStatus(LocalModelSet.CORE, modelSnapshot, true);
+        if (core != null) {
+            return core;
+        }
+        boolean promptRequired = sourceMode != null
+                && sourceMode.getValue() == GenerationSourceMode.PROMPT;
+        StatusLine text = modelSetStatus(
+                LocalModelSet.TEXT, textModelSnapshot, promptRequired);
+        if (text != null) {
+            return text;
+        }
+        return switch (runtimeSnapshot.state()) {
+            case STARTING -> new StatusLine(
+                    Text.translatable("minesplat.local.status.runtime_starting"), 0xffff55);
+            case READY -> new StatusLine(Text.translatable(
+                    "minesplat.local.status.runtime_ready", runtimeSnapshot.device()), 0x55ff55);
+            case FAILED -> new StatusLine(Text.literal(trim(
+                    runtimeSnapshot.error() == null
+                            ? runtimeSnapshot.message() : runtimeSnapshot.error(), 90)), 0xff5555);
+            default -> null;
+        };
+    }
+
+    private StatusLine modelSetStatus(
+            LocalModelSet set,
+            LocalModelSnapshot models,
+            boolean missingIsRelevant
+    ) {
+        String name = Text.translatable("minesplat.models." + set.id()).getString();
+        if (models.state() == LocalModelState.CHECKING) {
+            return new StatusLine(Text.translatable(
+                    "minesplat.local.status.models_checking_set", name), 0xffff55);
+        }
+        if (models.state() == LocalModelState.DOWNLOADING) {
+            int percent = (int) Math.round(models.progress() * 100.0);
+            String file = models.currentFile() == null ? "models" : models.currentFile();
+            return new StatusLine(Text.translatable(
+                    "minesplat.local.status.models_downloading_set",
+                    name, percent, file), 0xffff55);
+        }
+        if (models.state() == LocalModelState.CONVERTING) {
+            return new StatusLine(Text.translatable(
+                    "minesplat.local.status.models_converting", name), 0xffff55);
+        }
+        if (models.state() == LocalModelState.MISSING && missingIsRelevant) {
+            return new StatusLine(Text.translatable(
+                    "minesplat.local.status.models_missing_set", name), 0xffaa00);
+        }
+        if (models.state() == LocalModelState.FAILED) {
+            return new StatusLine(
+                    Text.literal(trim(models.error(), 90)), 0xff5555);
         }
         return null;
     }
@@ -716,6 +1148,27 @@ public final class MineSplatScreen extends Screen {
             } catch (Exception ignored) {
             }
             subscription = null;
+        }
+        if (modelSubscription != null) {
+            try {
+                modelSubscription.close();
+            } catch (Exception ignored) {
+            }
+            modelSubscription = null;
+        }
+        if (textModelSubscription != null) {
+            try {
+                textModelSubscription.close();
+            } catch (Exception ignored) {
+            }
+            textModelSubscription = null;
+        }
+        if (runtimeSubscription != null) {
+            try {
+                runtimeSubscription.close();
+            } catch (Exception ignored) {
+            }
+            runtimeSubscription = null;
         }
     }
 

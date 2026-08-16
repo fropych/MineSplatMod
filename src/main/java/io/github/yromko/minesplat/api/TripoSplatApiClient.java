@@ -27,6 +27,7 @@ import java.util.concurrent.Executors;
 
 public final class TripoSplatApiClient {
     public static final long MAX_IMAGE_BYTES = 25L * 1024L * 1024L;
+    public static final int MAX_PROMPT_BYTES = 8192;
     private static final Gson GSON = new Gson();
     private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(2);
     private static final ExecutorService HTTP_EXECUTOR = Executors.newCachedThreadPool(runnable -> {
@@ -84,7 +85,10 @@ public final class TripoSplatApiClient {
                         new ApiException(0, "incompatible_api", "Server is not a compatible TripoSplat API v1"));
             }
             return getJson("/v1/devices", DeviceList.class)
-                    .thenApply(devices -> new ConnectionInfo(health, devices.selectedDevice()));
+                    .thenApply(devices -> new ConnectionInfo(
+                            health,
+                            devices.selectedDevice(),
+                            devices.devices() == null ? java.util.List.of() : devices.devices()));
         });
     }
 
@@ -130,6 +134,46 @@ public final class TripoSplatApiClient {
         body.addProperty("num_gaussians", 32768);
         body.addProperty("erode_radius", 1);
         return postJson("/v1/generations", body, QueuedJob.class);
+    }
+
+    public CompletableFuture<QueuedJob> enqueueTextGeneration(String prompt, long seed) {
+        String value = validatePrompt(prompt);
+        JsonObject body = new JsonObject();
+        body.addProperty("prompt", value);
+        body.addProperty("seed", seed);
+        body.addProperty("width", 1024);
+        body.addProperty("height", 1024);
+        body.addProperty("image_steps", 8);
+        body.addProperty("steps", 20);
+        body.addProperty("guidance", 3.0);
+        body.addProperty("num_gaussians", 32768);
+        body.addProperty("erode_radius", 1);
+        return postJson("/v1/text-generations", body, QueuedJob.class)
+                .exceptionallyCompose(failure -> {
+                    Throwable cause = failure instanceof java.util.concurrent.CompletionException
+                            && failure.getCause() != null ? failure.getCause() : failure;
+                    if (cause instanceof ApiException api
+                            && (api.statusCode() == 404 || api.statusCode() == 405)) {
+                        return CompletableFuture.failedFuture(new ApiException(
+                                api.statusCode(), "text_generation_unsupported",
+                                "Prompt generation requires TripoSplatVulkan v0.2.0 or newer"));
+                    }
+                    return CompletableFuture.failedFuture(cause);
+                });
+    }
+
+    public static String validatePrompt(String prompt) {
+        if (prompt == null || prompt.isBlank()) {
+            throw new IllegalArgumentException("Prompt must not be blank");
+        }
+        String value = prompt.strip();
+        if (value.indexOf('\0') >= 0
+                || !StandardCharsets.UTF_8.newEncoder().canEncode(value)
+                || value.getBytes(StandardCharsets.UTF_8).length > MAX_PROMPT_BYTES) {
+            throw new IllegalArgumentException(
+                    "Prompt must be valid UTF-8 and at most 8192 bytes");
+        }
+        return value;
     }
 
     public CompletableFuture<QueuedJob> enqueueVoxelization(String plyArtifactId, int resolution) {
@@ -223,7 +267,7 @@ public final class TripoSplatApiClient {
         return HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .timeout(REQUEST_TIMEOUT)
                 .header("Accept", "application/json")
-                .header("User-Agent", "MineSplat/0.2.0");
+                .header("User-Agent", "MineSplat/0.4.0");
     }
 
     private static void requireSuccess(int status, byte[] body) {
