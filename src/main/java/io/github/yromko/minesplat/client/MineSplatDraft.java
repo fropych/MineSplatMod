@@ -41,4 +41,11 @@ public final class MineSplatDraft {
     public void schematicName(String value) {
         schematicName = value;
     }
+
+    public void reset() {
+        image = null;
+        prompt = "";
+        sourceMode = GenerationSourceMode.IMAGE;
+        schematicName = "minesplat";
+    }
 }

@@ -27,7 +27,8 @@ platforms retain remote mode.
 
 See the bilingual [user guide](docs/USER_GUIDE.md). The short version is:
 import the generated `.mrpack` into Prism Launcher, start a world, press
-`M + G`, and choose Local or Remote inference. Local mode downloads and verifies
+`M + G`, and use Settings in the wizard header to choose Local or Remote
+inference. Local mode downloads and verifies
 the pinned base model snapshot on first use. The separate Z-Image prompt models
 are optional and download only when explicitly requested; no model weights are
 embedded in the JAR.
@@ -62,10 +63,11 @@ from legally installed vanilla textures. Only numeric averages in
 
 ## API contract
 
-Generation always sends `num_gaussians=32768`, `steps=20`, `guidance=3.0`, and
-`erode_radius=1`. Prompt generation additionally uses a 1024×1024 image and
-eight Z-Image steps. Only the prompt and seed are user-configurable. The voxel presets change
-only resolution (32, 64, 128, 256, 512, and 1024). This matches the TripoSplat
+Generation always sends `num_gaussians=32768`, `guidance=3.0`, and
+`erode_radius=1`. Settings provide Base (512px, 10 TripoSplat steps), High
+(512px, 20 steps), and XHigh (1024px, 20 steps); prompt generation uses eight
+Z-Image steps in every mode. The voxel presets change only resolution
+(32, 64, 128, 256, 512, and 1024). This matches the TripoSplat
 server maximum. The 1024 preset is exceptionally heavy and benefits from at
 least 12–16 GiB allocated to the Prism instance.
 

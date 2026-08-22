@@ -16,18 +16,21 @@ import java.util.Locale;
 import java.util.Set;
 
 final class BlacklistScreen extends Screen {
-    private static final int PAGE_SIZE = 8;
+    private static final int MAX_PAGE_SIZE = 8;
 
     private final Screen parent;
     private final MineSplatConfig config;
     private final List<String> blockIds;
     private final Set<String> blacklisted;
-    private final List<ButtonWidget> blockButtons = new ArrayList<>();
+    private final List<MineSplatButton> blockButtons = new ArrayList<>();
     private TextFieldWidget search;
     private ButtonWidget previous;
     private ButtonWidget next;
     private int page;
     private int pageCount = 1;
+    private int pageSize = MAX_PAGE_SIZE;
+    private int panelWidth;
+    private int left;
 
     BlacklistScreen(Screen parent, MineSplatConfig config, BlockPalette palette) {
         super(Text.translatable("minesplat.blacklist"));
@@ -39,8 +42,10 @@ final class BlacklistScreen extends Screen {
 
     @Override
     protected void init() {
-        int panelWidth = Math.min(460, width - 24);
-        int left = (width - panelWidth) / 2;
+        blockButtons.clear();
+        pageSize = Math.max(3, Math.min(MAX_PAGE_SIZE, (height - 110) / 22));
+        panelWidth = Math.min(420, width - 32);
+        left = (width - panelWidth) / 2;
         search = new TextFieldWidget(
                 textRenderer, left, 38, panelWidth, 20,
                 Text.translatable("minesplat.blacklist.search"));
@@ -52,35 +57,34 @@ final class BlacklistScreen extends Screen {
         });
         addDrawableChild(search);
 
-        for (int index = 0; index < PAGE_SIZE; index++) {
+        for (int index = 0; index < pageSize; index++) {
             int buttonIndex = index;
-            ButtonWidget button = ButtonWidget.builder(Text.empty(), ignored -> toggle(buttonIndex))
-                    .dimensions(left, 64 + index * 22, panelWidth, 20)
-                    .build();
+            MineSplatButton button = MineSplatButton.choice(
+                    left, 64 + index * 22, panelWidth, 20,
+                    Text.empty(), false, ignored -> toggle(buttonIndex));
             blockButtons.add(addDrawableChild(button));
         }
 
-        previous = addDrawableChild(ButtonWidget.builder(
-                        Text.literal("◀"), ignored -> {
-                            page = Math.max(0, page - 1);
-                            refresh();
-                        })
-                .dimensions(left, 244, 40, 20).build());
-        next = addDrawableChild(ButtonWidget.builder(
-                        Text.literal("▶"), ignored -> {
-                            page = Math.min(pageCount - 1, page + 1);
-                            refresh();
-                        })
-                .dimensions(left + panelWidth - 40, 244, 40, 20).build());
-        addDrawableChild(ButtonWidget.builder(
-                        Text.translatable("gui.done"), ignored -> close())
-                .dimensions(left + panelWidth / 2 - 50, 244, 100, 20).build());
+        int footerY = height - 28;
+        previous = addDrawableChild(MineSplatButton.secondary(
+                left, footerY, 40, 20, Text.literal("◀"), ignored -> {
+                    page = Math.max(0, page - 1);
+                    refresh();
+                }));
+        next = addDrawableChild(MineSplatButton.secondary(
+                left + panelWidth - 40, footerY, 40, 20, Text.literal("▶"), ignored -> {
+                    page = Math.min(pageCount - 1, page + 1);
+                    refresh();
+                }));
+        addDrawableChild(MineSplatButton.primary(
+                left + panelWidth / 2 - 50, footerY, 100, 20,
+                Text.translatable("gui.done"), ignored -> close()));
         refresh();
     }
 
     private void toggle(int buttonIndex) {
         List<String> filtered = filtered();
-        int index = page * PAGE_SIZE + buttonIndex;
+        int index = page * pageSize + buttonIndex;
         if (index >= filtered.size()) {
             return;
         }
@@ -96,16 +100,16 @@ final class BlacklistScreen extends Screen {
             return;
         }
         List<String> filtered = filtered();
-        pageCount = Math.max(1, (filtered.size() + PAGE_SIZE - 1) / PAGE_SIZE);
+        pageCount = Math.max(1, (filtered.size() + pageSize - 1) / pageSize);
         page = Math.min(page, pageCount - 1);
         for (int index = 0; index < blockButtons.size(); index++) {
-            ButtonWidget button = blockButtons.get(index);
-            int resultIndex = page * PAGE_SIZE + index;
+            MineSplatButton button = blockButtons.get(index);
+            int resultIndex = page * pageSize + index;
             button.visible = resultIndex < filtered.size();
             if (button.visible) {
                 String block = filtered.get(resultIndex);
-                String mark = blacklisted.contains(block) ? "✕ " : "○ ";
-                button.setMessage(Text.literal(mark + block));
+                button.setSelected(blacklisted.contains(block));
+                button.setMessage(Text.literal(block));
             }
         }
         previous.active = page > 0;
@@ -122,8 +126,9 @@ final class BlacklistScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        renderPanel(context);
         super.render(context, mouseX, mouseY, delta);
-        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 16, 0xffffff);
+        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 14, 0xffffff);
         context.drawCenteredTextWithShadow(
                 textRenderer,
                 Text.translatable(
@@ -132,8 +137,12 @@ final class BlacklistScreen extends Screen {
                         pageCount,
                         blacklisted.size()),
                 width / 2,
-                269,
+                height - 42,
                 0xa0a0a0);
+    }
+
+    private void renderPanel(DrawContext context) {
+        MineSplatPanel.render(context, left, panelWidth, height);
     }
 
     @Override

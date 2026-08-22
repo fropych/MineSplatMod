@@ -9,6 +9,7 @@ import io.github.yromko.minesplat.api.ApiModels.DeviceList;
 import io.github.yromko.minesplat.api.ApiModels.Health;
 import io.github.yromko.minesplat.api.ApiModels.Job;
 import io.github.yromko.minesplat.api.ApiModels.QueuedJob;
+import io.github.yromko.minesplat.config.GenerationPreset;
 import io.github.yromko.minesplat.voxel.VoxelResolutions;
 
 import java.io.IOException;
@@ -126,10 +127,18 @@ public final class TripoSplatApiClient {
     }
 
     public CompletableFuture<QueuedJob> enqueueGeneration(String inputArtifactId, long seed) {
+        return enqueueGeneration(inputArtifactId, seed, GenerationPreset.XHIGH);
+    }
+
+    public CompletableFuture<QueuedJob> enqueueGeneration(
+            String inputArtifactId,
+            long seed,
+            GenerationPreset preset
+    ) {
         JsonObject body = new JsonObject();
         body.addProperty("input_artifact_id", inputArtifactId);
         body.addProperty("seed", seed);
-        body.addProperty("steps", 20);
+        body.addProperty("steps", preset.tripoSplatSteps());
         body.addProperty("guidance", 3.0);
         body.addProperty("num_gaussians", 32768);
         body.addProperty("erode_radius", 1);
@@ -137,14 +146,22 @@ public final class TripoSplatApiClient {
     }
 
     public CompletableFuture<QueuedJob> enqueueTextGeneration(String prompt, long seed) {
+        return enqueueTextGeneration(prompt, seed, GenerationPreset.XHIGH);
+    }
+
+    public CompletableFuture<QueuedJob> enqueueTextGeneration(
+            String prompt,
+            long seed,
+            GenerationPreset preset
+    ) {
         String value = validatePrompt(prompt);
         JsonObject body = new JsonObject();
         body.addProperty("prompt", value);
         body.addProperty("seed", seed);
-        body.addProperty("width", 1024);
-        body.addProperty("height", 1024);
+        body.addProperty("width", preset.imageResolution());
+        body.addProperty("height", preset.imageResolution());
         body.addProperty("image_steps", 8);
-        body.addProperty("steps", 20);
+        body.addProperty("steps", preset.tripoSplatSteps());
         body.addProperty("guidance", 3.0);
         body.addProperty("num_gaussians", 32768);
         body.addProperty("erode_radius", 1);
@@ -293,8 +310,23 @@ public final class TripoSplatApiClient {
         throw new ApiException(status, code, message);
     }
 
-    private static String safeUploadName(String name) {
-        return name.replace("\\", "_").replace("\"", "_").replace("\r", "_").replace("\n", "_");
+    static String safeUploadName(String name) {
+        if (name == null || name.isBlank()) {
+            return "input-image.bin";
+        }
+        StringBuilder safe = new StringBuilder(Math.min(name.length(), 120));
+        for (int index = 0; index < name.length() && safe.length() < 120; index++) {
+            char character = name.charAt(index);
+            boolean allowed = character >= 'a' && character <= 'z'
+                    || character >= 'A' && character <= 'Z'
+                    || character >= '0' && character <= '9'
+                    || character == '.' || character == '-' || character == '_';
+            safe.append(allowed ? character : '_');
+        }
+        String result = safe.toString();
+        return result.chars().anyMatch(Character::isLetterOrDigit)
+                ? result
+                : "input-image.bin";
     }
 
     private static String encodeOpaqueId(String id) {

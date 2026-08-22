@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import io.github.yromko.minesplat.config.GenerationPreset;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -92,6 +93,29 @@ class TripoSplatApiClientTest {
     }
 
     @Test
+    void generationPresetsControlImageResolutionAndTripoSplatSteps() {
+        TripoSplatApiClient client = new TripoSplatApiClient(baseUrl);
+
+        for (GenerationPreset preset : GenerationPreset.values()) {
+            client.enqueueGeneration("input-1", 42, preset).join();
+            client.enqueueTextGeneration("cube", 42, preset).join();
+        }
+
+        assertEquals(List.of(10, 20, 20), generationBodies.stream()
+                .map(body -> body.get("steps").getAsInt())
+                .toList());
+        assertEquals(List.of(512, 512, 1024), textGenerationBodies.stream()
+                .map(body -> body.get("width").getAsInt())
+                .toList());
+        assertEquals(List.of(512, 512, 1024), textGenerationBodies.stream()
+                .map(body -> body.get("height").getAsInt())
+                .toList());
+        assertEquals(List.of(10, 20, 20), textGenerationBodies.stream()
+                .map(body -> body.get("steps").getAsInt())
+                .toList());
+    }
+
+    @Test
     void explainsWhenRemoteServerPredatesPromptApi() {
         rejectTextGeneration = true;
         TripoSplatApiClient client = new TripoSplatApiClient(baseUrl);
@@ -162,6 +186,16 @@ class TripoSplatApiClientTest {
                 () -> TripoSplatApiClient.normalizeBaseUrl("http://"));
         assertThrows(IllegalArgumentException.class,
                 () -> TripoSplatApiClient.normalizeBaseUrl("https://example.test/?token=x"));
+    }
+
+    @Test
+    void sanitizesUploadNamesForMultipartHeaders() {
+        String safe = TripoSplatApiClient.safeUploadName(
+                "Снимок экрана 2026-08-16.png");
+
+        assertEquals("______________2026-08-16.png", safe);
+        assertTrue(safe.chars().allMatch(character -> character < 128));
+        assertEquals("input-image.bin", TripoSplatApiClient.safeUploadName("\r\n"));
     }
 
     private void handle(HttpExchange exchange) throws IOException {

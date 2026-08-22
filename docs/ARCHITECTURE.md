@@ -5,6 +5,12 @@ immutable snapshot, so closing a screen cannot cancel network or conversion
 work. Java `HttpClient`, a scheduled polling executor, and a dedicated
 conversion executor keep work off the render thread.
 
+`MineSplatScreen` presents that snapshot as a four-page wizard: Source, Blocks,
+Creating, and Result. The wizard collects all settings before calling the
+existing automatic controller pipeline; reopening it selects Creating or
+Result from the current snapshot. Inference configuration and local model
+management live in a separate settings screen.
+
 `InferenceTarget` makes the backend explicit. A remote target creates the
 normal API client immediately. A local target asks `LocalRuntimeManager` to
 verify/extract the bundled platform runtime, start `triposplat-vulkan serve` on

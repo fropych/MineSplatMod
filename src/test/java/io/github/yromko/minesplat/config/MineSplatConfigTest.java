@@ -28,12 +28,14 @@ class MineSplatConfigTest {
         assertEquals(PaletteProfile.SURVIVAL, config.paletteProfile());
         assertEquals(OutputMode.LITEMATICA, config.outputMode());
         assertEquals(InferenceMode.REMOTE, config.inferenceMode());
+        assertEquals(GenerationPreset.BASE, config.generationPreset());
         assertEquals(0, config.localDeviceIndex());
         assertEquals("", config.localModelDirectory());
         assertEquals(Set.of("minecraft:stone"), config.blacklistedBlocks());
 
         JsonObject json = JsonParser.parseString(config.toJson()).getAsJsonObject();
-        assertEquals(3, json.get("schemaVersion").getAsInt());
+        assertEquals(4, json.get("schemaVersion").getAsInt());
+        assertEquals("base", json.get("generationPreset").getAsString());
         assertEquals("litematica", json.get("outputMode").getAsString());
         assertEquals("remote", json.get("inferenceMode").getAsString());
     }
@@ -45,12 +47,14 @@ class MineSplatConfigTest {
                   "schemaVersion": 3,
                   "inferenceMode": "local",
                   "localDeviceIndex": 2,
-                  "localModelDirectory": "  /models/triposplat  "
+                  "localModelDirectory": "  /models/triposplat  ",
+                  "generationPreset": "high"
                 }
                 """);
 
         assertEquals(InferenceMode.LOCAL, config.inferenceMode());
         assertEquals(2, config.localDeviceIndex());
         assertEquals("/models/triposplat", config.localModelDirectory());
+        assertEquals(GenerationPreset.HIGH, config.generationPreset());
     }
 }

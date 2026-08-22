@@ -7,6 +7,7 @@ import io.github.yromko.minesplat.api.TripoSplatApiClient;
 import io.github.yromko.minesplat.cnb.CnbBlueprintExporter;
 import io.github.yromko.minesplat.cnb.CnbIntegration;
 import io.github.yromko.minesplat.cnb.UnavailableCnbIntegration;
+import io.github.yromko.minesplat.config.GenerationPreset;
 import io.github.yromko.minesplat.config.OutputMode;
 import io.github.yromko.minesplat.config.PaletteProfile;
 import io.github.yromko.minesplat.config.VoxelPreset;
@@ -102,6 +103,15 @@ public final class MineSplatController implements AutoCloseable {
             GenerationSource source,
             long seed
     ) {
+        return canReuseGeneration(target, source, seed, GenerationPreset.XHIGH);
+    }
+
+    public synchronized boolean canReuseGeneration(
+            InferenceTarget target,
+            GenerationSource source,
+            long seed,
+            GenerationPreset generationPreset
+    ) {
         if (session == null || session.plyArtifactId == null || source == null) {
             return false;
         }
@@ -109,6 +119,7 @@ public final class MineSplatController implements AutoCloseable {
         try {
             return previous.seed() == seed
                     && previous.source().equals(source)
+                    && previous.generationPreset() == generationPreset
                     && session.backendIdentity != null
                     && session.backendIdentity.equals(target.identity());
         } catch (RuntimeException exception) {
@@ -122,7 +133,17 @@ public final class MineSplatController implements AutoCloseable {
             long seed
     ) {
         return image != null && canReuseGeneration(
-                target, new GenerationSource.Image(image), seed);
+                target, new GenerationSource.Image(image), seed, GenerationPreset.XHIGH);
+    }
+
+    public synchronized boolean canReuseGeneration(
+            InferenceTarget target,
+            Path image,
+            long seed,
+            GenerationPreset generationPreset
+    ) {
+        return image != null && canReuseGeneration(
+                target, new GenerationSource.Image(image), seed, generationPreset);
     }
 
     public synchronized boolean hasSession() {
@@ -180,7 +201,9 @@ public final class MineSplatController implements AutoCloseable {
                 0, 0, 0, 0,
                 Map.of(),
                 null,
-                request.outputMode()));
+                request.outputMode(),
+                -1.0,
+                -1.0));
         next.outputMode = request.outputMode();
 
         boolean prompt = request.source() instanceof GenerationSource.Prompt;
@@ -196,12 +219,14 @@ public final class MineSplatController implements AutoCloseable {
                                     next.inputArtifactId = required(
                                             artifact.id(), "uploaded input artifact");
                                     return next.api.enqueueGeneration(
-                                            next.inputArtifactId, request.seed());
+                                            next.inputArtifactId, request.seed(),
+                                            request.generationPreset());
                                 });
                     }
                     GenerationSource.Prompt text = (GenerationSource.Prompt) request.source();
                     transition(GenerationState.UPLOADING, "Submitting prompt");
-                    return next.api.enqueueTextGeneration(text.text(), request.seed());
+                    return next.api.enqueueTextGeneration(
+                            text.text(), request.seed(), request.generationPreset());
                 })
                 .thenCompose(queued -> {
                     ensureActive(next);
@@ -302,9 +327,16 @@ public final class MineSplatController implements AutoCloseable {
 
     private CompletableFuture<Void> finishGeneration(Session current, Job job) {
         ensureActive(current);
+        boolean prompt = current.request.source() instanceof GenerationSource.Prompt;
+        double imageSeconds = prompt
+                ? metric(job, "image_elapsed_seconds") : -1.0;
+        double modelSeconds = metric(
+                job, prompt ? "triposplat_elapsed_seconds" : "elapsed_seconds");
+        update(copy(snapshot, snapshot.state(), snapshot.message(), snapshot.error())
+                .withGenerationTimes(imageSeconds, modelSeconds));
         current.plyArtifactId = required(job.artifact("gaussian_ply"), "generation PLY artifact");
         current.splatArtifactId = job.artifact("splat");
-        if (current.request.source() instanceof GenerationSource.Prompt) {
+        if (prompt) {
             current.generatedImageArtifactId = required(
                     job.artifact("image"), "generated image artifact");
         }
@@ -603,6 +635,18 @@ public final class MineSplatController implements AutoCloseable {
         return value;
     }
 
+    private static double metric(Job job, String name) {
+        if (job.metrics() == null) {
+            return -1.0;
+        }
+        Object value = job.metrics().get(name);
+        if (!(value instanceof Number number)) {
+            return -1.0;
+        }
+        double seconds = number.doubleValue();
+        return Double.isFinite(seconds) && seconds >= 0.0 ? seconds : -1.0;
+    }
+
     private static Throwable unwrap(Throwable throwable) {
         Throwable current = throwable;
         while ((current instanceof CompletionException)
@@ -697,6 +741,8 @@ public final class MineSplatController implements AutoCloseable {
         private Map<String, Integer> materials;
         private Path outputFile;
         private OutputMode outputMode;
+        private double imageGenerationSeconds;
+        private double modelGenerationSeconds;
 
         private SnapshotBuilder(
                 GenerationSnapshot source,
@@ -719,6 +765,8 @@ public final class MineSplatController implements AutoCloseable {
             this.materials = source.materials();
             this.outputFile = source.outputFile();
             this.outputMode = source.outputMode();
+            this.imageGenerationSeconds = source.imageGenerationSeconds();
+            this.modelGenerationSeconds = source.modelGenerationSeconds();
         }
 
         private SnapshotBuilder withDevice(String value) {
@@ -765,11 +813,20 @@ public final class MineSplatController implements AutoCloseable {
             return this;
         }
 
+        private SnapshotBuilder withGenerationTimes(
+                double imageSeconds,
+                double modelSeconds
+        ) {
+            imageGenerationSeconds = imageSeconds;
+            modelGenerationSeconds = modelSeconds;
+            return this;
+        }
+
         private GenerationSnapshot build() {
             return new GenerationSnapshot(
                     state, message, error, device, jobId, queued, pollingPaused,
                     resolution, width, height, depth, blockCount, materials, outputFile,
-                    outputMode);
+                    outputMode, imageGenerationSeconds, modelGenerationSeconds);
         }
     }
 }

@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import io.github.yromko.minesplat.config.GenerationPreset;
 import io.github.yromko.minesplat.config.PaletteProfile;
 import io.github.yromko.minesplat.config.OutputMode;
 import io.github.yromko.minesplat.config.VoxelPreset;
@@ -98,6 +99,7 @@ class MineSplatControllerTest {
                         image,
                         "test",
                         42,
+                        GenerationPreset.BASE,
                         VoxelPreset.STANDARD,
                         PaletteProfile.SURVIVAL,
                         Set.of(),
@@ -107,6 +109,8 @@ class MineSplatControllerTest {
         assertEquals(temporary.resolve("test-r64.litematic"), output);
         assertEquals(GenerationState.SUCCEEDED, controller.snapshot().state());
         assertEquals(1, controller.snapshot().blockCount());
+        assertFalse(controller.snapshot().hasImageGenerationTime());
+        assertEquals(12.5, controller.snapshot().modelGenerationSeconds(), 0.001);
         assertTrue(states.containsAll(List.of(
                 GenerationState.UPLOADING,
                 GenerationState.GENERATION_QUEUED,
@@ -120,6 +124,7 @@ class MineSplatControllerTest {
 
         assertEquals(32768, generationBody.get("num_gaussians").getAsInt());
         assertEquals(42, generationBody.get("seed").getAsLong());
+        assertEquals(10, generationBody.get("steps").getAsInt());
         assertEquals(64, voxelBody.get("resolution").getAsInt());
         assertEquals(0.1, voxelBody.get("opacity_threshold").getAsDouble());
         assertNotNull(uploadContentLength);
@@ -130,7 +135,9 @@ class MineSplatControllerTest {
         assertFalse(deletes.contains("ply-1"));
 
         assertTrue(controller.canReuseGeneration(
-                new InferenceTarget.Remote(baseUrl), image, 42));
+                new InferenceTarget.Remote(baseUrl), image, 42, GenerationPreset.BASE));
+        assertFalse(controller.canReuseGeneration(
+                new InferenceTarget.Remote(baseUrl), image, 42, GenerationPreset.HIGH));
         Path blueprint = controller.rebuildOrRevoxelize(
                         "test",
                         VoxelPreset.STANDARD,
@@ -153,6 +160,7 @@ class MineSplatControllerTest {
                         prompt,
                         "cottage",
                         73,
+                        GenerationPreset.BASE,
                         VoxelPreset.STANDARD,
                         PaletteProfile.SURVIVAL,
                         Set.of(),
@@ -162,13 +170,16 @@ class MineSplatControllerTest {
         assertEquals(temporary.resolve("cottage-r64.litematic"), output);
         assertEquals("a mossy stone cottage",
                 textGenerationBody.get("prompt").getAsString());
-        assertEquals(1024, textGenerationBody.get("width").getAsInt());
+        assertEquals(512, textGenerationBody.get("width").getAsInt());
         assertEquals(8, textGenerationBody.get("image_steps").getAsInt());
+        assertEquals(10, textGenerationBody.get("steps").getAsInt());
+        assertEquals(3.25, controller.snapshot().imageGenerationSeconds(), 0.001);
+        assertEquals(7.5, controller.snapshot().modelGenerationSeconds(), 0.001);
         waitForDelete("image-text-1");
         waitForDelete("splat-text-1");
         assertFalse(deletes.contains("ply-text-1"));
         assertTrue(controller.canReuseGeneration(
-                new InferenceTarget.Remote(baseUrl), prompt, 73));
+                new InferenceTarget.Remote(baseUrl), prompt, 73, GenerationPreset.BASE));
     }
 
     private void handle(HttpExchange exchange) throws IOException {
@@ -201,12 +212,16 @@ class MineSplatControllerTest {
                 job(exchange, "gen-1", "running", "{}");
             } else {
                 job(exchange, "gen-1", "succeeded",
-                        "{\"gaussian_ply\":\"ply-1\",\"splat\":\"splat-1\"}");
+                        "{\"gaussian_ply\":\"ply-1\",\"splat\":\"splat-1\"}",
+                        "{\"elapsed_seconds\":12.5}");
             }
         } else if (method.equals("GET") && path.equals("/v1/jobs/text-1")) {
             job(exchange, "text-1", "succeeded",
                     "{\"image\":\"image-text-1\",\"gaussian_ply\":\"ply-text-1\","
-                            + "\"splat\":\"splat-text-1\"}");
+                            + "\"splat\":\"splat-text-1\"}",
+                    "{\"image_elapsed_seconds\":3.25,"
+                            + "\"triposplat_elapsed_seconds\":7.5,"
+                            + "\"elapsed_seconds\":10.75}");
         } else if (method.equals("POST") && path.equals("/v1/voxelizations")) {
             voxelizations.incrementAndGet();
             voxelBody = readJson(exchange);
@@ -233,10 +248,20 @@ class MineSplatControllerTest {
             String status,
             String artifacts
     ) throws IOException {
+        job(exchange, id, status, artifacts, "{}");
+    }
+
+    private static void job(
+            HttpExchange exchange,
+            String id,
+            String status,
+            String artifacts,
+            String metrics
+    ) throws IOException {
         json(exchange, 200, """
                 {"id":"%s","type":"generation","status":"%s","error":null,
-                 "input_artifact_id":"input-1","artifacts":%s,"metrics":{}}
-                """.formatted(id, status, artifacts));
+                 "input_artifact_id":"input-1","artifacts":%s,"metrics":%s}
+                """.formatted(id, status, artifacts, metrics));
     }
 
     private static JsonObject readJson(HttpExchange exchange) throws IOException {

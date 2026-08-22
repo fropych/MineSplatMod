@@ -2,6 +2,7 @@ package io.github.yromko.minesplat.workflow;
 
 import io.github.yromko.minesplat.config.OutputMode;
 import io.github.yromko.minesplat.config.PaletteProfile;
+import io.github.yromko.minesplat.config.GenerationPreset;
 import io.github.yromko.minesplat.config.VoxelPreset;
 import io.github.yromko.minesplat.inference.InferenceTarget;
 
@@ -13,6 +14,7 @@ public record GenerationRequest(
         GenerationSource source,
         String schematicName,
         long seed,
+        GenerationPreset generationPreset,
         VoxelPreset preset,
         PaletteProfile paletteProfile,
         Set<String> blacklistedBlocks,
@@ -25,8 +27,38 @@ public record GenerationRequest(
         if (source == null) {
             throw new IllegalArgumentException("Generation source is required");
         }
+        generationPreset = generationPreset == null ? GenerationPreset.BASE : generationPreset;
         blacklistedBlocks = Set.copyOf(blacklistedBlocks);
         outputMode = outputMode == null ? OutputMode.LITEMATICA : outputMode;
+    }
+
+    public GenerationRequest(
+            InferenceTarget target,
+            GenerationSource source,
+            String schematicName,
+            long seed,
+            VoxelPreset preset,
+            PaletteProfile paletteProfile,
+            Set<String> blacklistedBlocks,
+            OutputMode outputMode
+    ) {
+        this(target, source, schematicName, seed, GenerationPreset.XHIGH, preset,
+                paletteProfile, blacklistedBlocks, outputMode);
+    }
+
+    public GenerationRequest(
+            InferenceTarget target,
+            Path image,
+            String schematicName,
+            long seed,
+            GenerationPreset generationPreset,
+            VoxelPreset preset,
+            PaletteProfile paletteProfile,
+            Set<String> blacklistedBlocks,
+            OutputMode outputMode
+    ) {
+        this(target, new GenerationSource.Image(image), schematicName, seed, generationPreset, preset,
+                paletteProfile, blacklistedBlocks, outputMode);
     }
 
     public GenerationRequest(
@@ -39,7 +71,7 @@ public record GenerationRequest(
             Set<String> blacklistedBlocks,
             OutputMode outputMode
     ) {
-        this(target, new GenerationSource.Image(image), schematicName, seed, preset,
+        this(target, image, schematicName, seed, GenerationPreset.XHIGH, preset,
                 paletteProfile, blacklistedBlocks, outputMode);
     }
 }

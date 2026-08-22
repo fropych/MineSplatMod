@@ -12,7 +12,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
 public final class CnbBlueprintLibraryScreen extends Screen {
-    private static final int PAGE_SIZE = 8;
+    private static final int MAX_PAGE_SIZE = 8;
 
     private final Screen parent;
     private final CnbBlueprintStore store;
@@ -20,6 +20,9 @@ public final class CnbBlueprintLibraryScreen extends Screen {
     private volatile List<CnbBlueprintStore.BlueprintFile> files = List.of();
     private volatile String message;
     private int page;
+    private int pageSize = MAX_PAGE_SIZE;
+    private int panelWidth;
+    private int left;
 
     public CnbBlueprintLibraryScreen(
             Screen parent,
@@ -34,43 +37,47 @@ public final class CnbBlueprintLibraryScreen extends Screen {
 
     @Override
     protected void init() {
-        int panelWidth = Math.min(560, width - 20);
-        int left = (width - panelWidth) / 2;
+        pageSize = Math.max(3, Math.min(MAX_PAGE_SIZE, (height - 104) / 24));
+        panelWidth = Math.min(420, width - 32);
+        left = (width - panelWidth) / 2;
         int rowWidth = panelWidth;
-        int start = page * PAGE_SIZE;
-        int end = Math.min(files.size(), start + PAGE_SIZE);
+        int start = page * pageSize;
+        if (start >= files.size() && page > 0) {
+            page = Math.max(0, (files.size() - 1) / pageSize);
+            start = page * pageSize;
+        }
+        int end = Math.min(files.size(), start + pageSize);
         for (int index = start; index < end; index++) {
             CnbBlueprintStore.BlueprintFile file = files.get(index);
             int row = index - start;
-            ButtonWidget button = ButtonWidget.builder(
-                            label(file),
-                            ignored -> place(file))
-                    .dimensions(left, 42 + row * 24, rowWidth, 20)
-                    .build();
+            ButtonWidget button = MineSplatButton.secondary(
+                    left, 42 + row * 24, rowWidth, 20,
+                    label(file), ignored -> place(file));
             button.active = file.valid() && placement.canPlaceNow();
             addDrawableChild(button);
         }
         int half = (panelWidth - 6) / 2;
-        ButtonWidget previous = addDrawableChild(ButtonWidget.builder(
-                        Text.translatable("minesplat.cnb.previous"),
-                        ignored -> {
-                            page = Math.max(0, page - 1);
-                            clearAndInit();
-                        })
-                .dimensions(left, height - 52, half, 20).build());
+        ButtonWidget previous = addDrawableChild(MineSplatButton.secondary(
+                left, height - 52, half, 20,
+                Text.translatable("minesplat.cnb.previous"),
+                ignored -> {
+                    page = Math.max(0, page - 1);
+                    clearAndInit();
+                }));
         previous.active = page > 0;
-        ButtonWidget next = addDrawableChild(ButtonWidget.builder(
-                        Text.translatable("minesplat.cnb.next"),
-                        ignored -> {
-                            page++;
-                            clearAndInit();
-                        })
-                .dimensions(left + half + 6, height - 52, half, 20).build());
-        next.active = (page + 1) * PAGE_SIZE < files.size();
-        addDrawableChild(ButtonWidget.builder(
-                        Text.translatable("gui.back"),
-                        ignored -> close())
-                .dimensions(left, height - 28, panelWidth, 20).build());
+        ButtonWidget next = addDrawableChild(MineSplatButton.secondary(
+                left + half + 6, height - 52, half, 20,
+                Text.translatable("minesplat.cnb.next"),
+                ignored -> {
+                    page++;
+                    clearAndInit();
+                }));
+        next.active = (page + 1) * pageSize < files.size();
+        int backWidth = Math.min(112, panelWidth);
+        addDrawableChild(MineSplatButton.secondary(
+                left + (panelWidth - backWidth) / 2,
+                height - 28, backWidth, 20,
+                Text.translatable("gui.back"), ignored -> close()));
         if (files.isEmpty() && message == null) {
             reload();
         }
@@ -123,9 +130,10 @@ public final class CnbBlueprintLibraryScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        renderPanel(context);
         super.render(context, mouseX, mouseY, delta);
         context.drawCenteredTextWithShadow(
-                textRenderer, title, width / 2, 16, 0xffffff);
+                textRenderer, title, width / 2, 14, 0xffffff);
         if (message != null) {
             context.drawCenteredTextWithShadow(
                     textRenderer, message, width / 2, 30, 0xffaa00);
@@ -136,6 +144,10 @@ public final class CnbBlueprintLibraryScreen extends Screen {
                     placement.placementUnavailableReason(),
                     width / 2, height - 66, 0xffaa00);
         }
+    }
+
+    private void renderPanel(DrawContext context) {
+        MineSplatPanel.render(context, left, panelWidth, height);
     }
 
     @Override

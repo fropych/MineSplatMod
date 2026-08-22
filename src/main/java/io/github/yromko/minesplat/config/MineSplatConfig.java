@@ -16,7 +16,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 public final class MineSplatConfig {
-    public static final int SCHEMA_VERSION = 3;
+    public static final int SCHEMA_VERSION = 4;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private int schemaVersion = SCHEMA_VERSION;
@@ -24,6 +24,7 @@ public final class MineSplatConfig {
     private String inferenceMode = InferenceMode.REMOTE.id();
     private int localDeviceIndex = 0;
     private String localModelDirectory = "";
+    private String generationPreset = GenerationPreset.BASE.id();
     private long seed = 42;
     private String voxelPreset = VoxelPreset.STANDARD.id();
     private String paletteProfile = PaletteProfile.SURVIVAL.id();
@@ -89,6 +90,7 @@ public final class MineSplatConfig {
         }
         localModelDirectory = localModelDirectory == null
                 ? "" : localModelDirectory.trim();
+        generationPreset = GenerationPreset.fromId(generationPreset).id();
         if (seed < 0) {
             seed = 42;
         }
@@ -135,6 +137,14 @@ public final class MineSplatConfig {
 
     public void localModelDirectory(String value) {
         localModelDirectory = value == null ? "" : value.trim();
+    }
+
+    public GenerationPreset generationPreset() {
+        return GenerationPreset.fromId(generationPreset);
+    }
+
+    public void generationPreset(GenerationPreset value) {
+        generationPreset = value == null ? GenerationPreset.BASE.id() : value.id();
     }
 
     public long seed() {

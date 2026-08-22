@@ -12,22 +12,26 @@
    нужна ARM64/AArch64 Java; на Intel Mac — x64 Java.
 5. Выделите инстансу 4–6 GiB RAM.
 6. Запустите его один раз и создайте или откройте мир.
-7. В игре нажмите `M + G` и выберите режим инференса.
-8. Для локального инференса на Windows/Linux x86-64 выберите `Локально`:
+7. В игре нажмите `M + G`. Откроется мастер MineSplat; режим инференса
+   настраивается кнопкой «Настройки» в его шапке.
+8. Для локального инференса на Windows/Linux x86-64 откройте настройки и
+   выберите `Локально`:
+   - выберите режим генерации `Base`, `High` или `XHigh`;
    - оставьте предложенную папку моделей или выберите другую кнопкой `…`;
    - нажмите «Установить базовые модели» и дождитесь загрузки, конвертации и проверки SHA-256;
    - для генерации по тексту отдельно нажмите «Установить модели промпта»;
    - нажмите «Проверить локально»; после запуска можно выбрать Vulkan GPU.
-9. Для своего сервера выберите `Удалённо`, введите полный HTTP/HTTPS base URL
+9. Для своего сервера в настройках выберите `Удалённо`, введите полный HTTP/HTTPS base URL
    и нажмите «Проверить API». Например, сервер можно проверить отдельно:
 
    ```bash
    curl http://127.0.0.1:8080/health
    ```
 
-10. Выберите источник «Изображение» и перетащите PNG/JPEG либо переключитесь на
-    «Промпт» и опишите объект. Задайте имя, seed и разрешение, затем нажмите
-    «Создать схему».
+10. На первом шаге выберите «Изображение» и перетащите PNG/JPEG либо
+    переключитесь на «Промпт» и опишите объект. Seed находится в дополнительных
+    настройках. Нажмите «Далее: настройки блоков», задайте имя, разрешение,
+    палитру и формат результата, затем создайте схему или миниатюру.
 
 Локальный runtime уже находится внутри JAR. Пять базовых файлов загружаются, а
 три из них конвертируются во встроенный формат; итоговый набор занимает
@@ -48,7 +52,7 @@ ARM64/AArch64 и других неподдерживаемых системах 
 
 Окно можно закрывать во время работы — задача продолжится. При временном обрыве
 сети MineSplat делает повторы через 1, 2 и 4 секунды, затем предлагает
-«Продолжить опрос». Запущенную GPU-задачу API v1 отменить не умеет; задачу в
+«Повторить соединение». Запущенную GPU-задачу API v1 отменить не умеет; задачу в
 очереди можно отменить.
 
 Смена 32/64/128/256/512/1024 в текущей сессии повторяет только вокселизацию
@@ -68,9 +72,9 @@ Litematica работает без него.
 2. Найдите Chisels & Bits и установите точную Fabric-версию `21.1.33`.
    Подтвердите зависимости, которые предложит Prism.
 3. Запустите singleplayer-мир и переключитесь в Creative.
-4. В MineSplat выберите
-   `Результат → Миниатюра Chisels & Bits` и создайте blueprint.
-5. Нажмите «Разместить миниатюру». Появится цветное полупрозрачное превью:
+4. На шаге «Блоки» выберите «Миниатюра Chisels & Bits» и создайте blueprint.
+5. На странице результата нажмите «Разместить миниатюру». Появится цветное
+   полупрозрачное превью:
    - `R` / `Shift+R` — поворот на 90°;
    - стрелки — сдвиг по X/Z;
    - `Page Up` / `Page Down` — сдвиг по Y;
@@ -135,15 +139,17 @@ Minecraft-сервере. Локальный TripoSplat запускается �
    x64 Java on an Intel Mac.
 5. Allocate 4–6 GiB RAM.
 6. Launch once and create or open a world.
-7. Press `M + G` and choose an inference mode.
-8. On Windows/Linux x86-64, choose `Local`, keep or select a model directory,
-   select `Install base models`, then `Test local`. Select `Install prompt
+7. Press `M + G` to open the MineSplat wizard. Inference is configured through
+   `Settings` in its header.
+8. On Windows/Linux x86-64, open Settings, choose `Local`, keep or select a model directory,
+   choose `Base`, `High`, or `XHigh`, select `Install base models`, then `Test local`. Select `Install prompt
    models` separately only when local text generation is wanted. A different Vulkan GPU can be
    selected after the runtime reports its device list.
-9. To use your own service, choose `Remote`, enter its HTTP/HTTPS base URL, and
+9. To use your own service, choose `Remote` in Settings, enter its HTTP/HTTPS base URL, and
    select `Test API`. It can also be checked with `curl <BASE_URL>/health`.
-10. Choose Image and drop/select a PNG/JPEG, or choose Prompt and describe the
-    object. Select the seed and voxel preset, then create the schematic.
+10. On the Source step choose Image and drop/select a PNG/JPEG, or choose Prompt
+    and describe the object. Seed is under Advanced settings. Continue to Block
+    settings, choose the name, voxel preset, palette, and output, then create it.
 
 The `.litematic` is saved under
 `<instance>/minecraft/schematics/minesplat/`, loaded by Litematica, and placed
@@ -170,9 +176,9 @@ Litematica export works without it.
 2. Install the exact Fabric release Chisels & Bits `21.1.33` and accept the
    dependencies suggested by Prism.
 3. Open a singleplayer world in Creative mode.
-4. Select `Output → Chisels & Bits miniature`, generate the blueprint, and
-   select `Place miniature`.
-5. Position the colored hologram with `R` / `Shift+R`, the arrow keys, and
+4. On the Blocks step select `Chisels & Bits miniature` and generate the blueprint.
+5. On the Result page select `Place miniature`.
+6. Position the colored hologram with `R` / `Shift+R`, the arrow keys, and
    Page Up/Down. Right-click confirms; Escape cancels.
 
 Saved `.msbp` files are kept under
