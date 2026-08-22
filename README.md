@@ -57,9 +57,12 @@ from TripoSplatVulkan release `v0.2.0`, source commit
 the MineSplat build. `validateTripoSplatRuntime` verifies every bundled runtime
 file against `runtime-manifest.json` during `check`.
 
-The development-only `tools/PaletteAverage.java` calculates numeric face colors
-from legally installed vanilla textures. Only numeric averages in
-`palette-1.21.1.json` are shipped; Minecraft textures are not redistributed.
+The development-only `tools/VanillaPaletteGenerator.java` calculates numeric
+per-face colors directly from a legally installed Minecraft client JAR. It
+keeps only opaque, non-falling full-cube states and never copies Minecraft
+textures into the project output. Block categories are maintained separately
+from version-specific colors; the reproducible TXT-to-JSON workflow is
+documented in `tools/palette/README.md`.
 
 ## API contract
 

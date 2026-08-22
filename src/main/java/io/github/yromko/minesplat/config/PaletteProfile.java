@@ -1,8 +1,9 @@
 package io.github.yromko.minesplat.config;
 
 public enum PaletteProfile {
+    ALL("all"),
     SURVIVAL("survival"),
-    MAXIMUM_COLOR("maximum_color");
+    SOLID_COLORS("solid_colors");
 
     private final String id;
 
@@ -20,6 +21,9 @@ public enum PaletteProfile {
     }
 
     public static PaletteProfile fromId(String id) {
+        if ("maximum_color".equals(id)) {
+            return ALL;
+        }
         for (PaletteProfile value : values()) {
             if (value.id.equals(id)) {
                 return value;

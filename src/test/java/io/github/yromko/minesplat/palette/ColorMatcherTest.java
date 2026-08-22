@@ -21,13 +21,29 @@ class ColorMatcherTest {
     void filtersProfilesAndEveryStateOfBlacklistedBlock() {
         BlockPalette palette = BlockPalette.loadDefault();
 
+        assertEquals(399, palette.blockIds().size());
+        assertEquals(796, palette.candidates(PaletteProfile.ALL, Set.of()).size());
+        assertEquals(731, palette.candidates(PaletteProfile.SURVIVAL, Set.of()).size());
+        assertEquals(49, palette.candidates(PaletteProfile.SOLID_COLORS, Set.of()).size());
+        assertTrue(palette.candidates(PaletteProfile.ALL, Set.of()).stream()
+                .anyMatch(entry -> entry.blockId().equals("minecraft:bedrock")));
         assertFalse(palette.candidates(PaletteProfile.SURVIVAL, Set.of()).stream()
-                .anyMatch(entry -> entry.blockId().equals("minecraft:diamond_block")));
-        assertTrue(palette.candidates(PaletteProfile.MAXIMUM_COLOR, Set.of()).stream()
-                .anyMatch(entry -> entry.blockId().equals("minecraft:diamond_block")));
+                .anyMatch(entry -> entry.blockId().equals("minecraft:bedrock")));
+        assertTrue(palette.candidates(PaletteProfile.SOLID_COLORS, Set.of()).stream()
+                .anyMatch(entry -> entry.blockId().equals("minecraft:red_concrete")));
+        assertFalse(palette.candidates(PaletteProfile.SOLID_COLORS, Set.of()).stream()
+                .anyMatch(entry -> entry.blockId().equals("minecraft:red_glazed_terracotta")));
         assertFalse(palette.candidates(
                         PaletteProfile.SURVIVAL, Set.of("minecraft:stripped_oak_log")).stream()
                 .anyMatch(entry -> entry.blockId().equals("minecraft:stripped_oak_log")));
+        Set<String> falling = Set.of(
+                "minecraft:sand",
+                "minecraft:red_sand",
+                "minecraft:gravel",
+                "minecraft:suspicious_sand",
+                "minecraft:suspicious_gravel",
+                "minecraft:dragon_egg");
+        assertTrue(palette.blockIds().stream().noneMatch(falling::contains));
     }
 
     @Test
@@ -104,6 +120,27 @@ class ColorMatcherTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new ColorMatcher().match(grid, candidates));
+    }
+
+    @Test
+    void matchesAFullBaseGridAgainstTheCompletePalette() {
+        int voxelCount = 32 * 32 * 32;
+        int[] indices = new int[voxelCount];
+        byte[] colors = new byte[voxelCount * 3];
+        for (int index = 0; index < voxelCount; index++) {
+            indices[index] = index;
+            colors[index * 3] = (byte) index;
+            colors[index * 3 + 1] = (byte) (index >>> 5);
+            colors[index * 3 + 2] = (byte) (index >>> 10);
+        }
+        TsvoxGrid grid = new TsvoxReader().read(
+                TsvoxFixtures.valid(32, indices, colors), 32);
+        BlockPalette palette = BlockPalette.loadDefault();
+
+        MatchedVoxels matched = new ColorMatcher().match(
+                grid, palette.candidates(PaletteProfile.ALL, Set.of()));
+
+        assertEquals(voxelCount, matched.size());
     }
 
     @Test

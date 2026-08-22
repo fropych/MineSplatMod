@@ -10,6 +10,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class MineSplatConfigTest {
     @Test
+    void migratesLegacyMaximumColorProfile() {
+        MineSplatConfig config = MineSplatConfig.parse("""
+                {"paletteProfile":"maximum_color"}
+                """);
+
+        assertEquals(PaletteProfile.ALL, config.paletteProfile());
+    }
+
+    @Test
     void migratesAndValidatesSchemaOne() {
         MineSplatConfig config = MineSplatConfig.parse("""
                 {

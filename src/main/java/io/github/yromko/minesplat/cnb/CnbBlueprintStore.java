@@ -139,6 +139,9 @@ public final class CnbBlueprintStore {
         }
         String profileId = root.getString("paletteProfile");
         PaletteProfile profile = null;
+        if ("maximum_color".equals(profileId)) {
+            profile = PaletteProfile.ALL;
+        }
         for (PaletteProfile candidate : PaletteProfile.values()) {
             if (candidate.id().equals(profileId)) {
                 profile = candidate;

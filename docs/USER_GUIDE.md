@@ -33,6 +33,11 @@
     настройках. Нажмите «Далее: настройки блоков», задайте имя, разрешение,
     палитру и формат результата, затем создайте схему или миниатюру.
 
+Палитра `Все` содержит все 399 подходящих непрозрачных полноразмерных блоков,
+`Выживание` исключает недоступные в обычном Survival блоки, а `Однотонные
+цвета` оставляет шерсть, бетон и терракоту. Падающие блоки вроде песка и
+полупрозрачные блоки не используются ни в одной палитре.
+
 Локальный runtime уже находится внутри JAR. Пять базовых файлов загружаются, а
 три из них конвертируются во встроенный формат; итоговый набор занимает
 3 609 105 870 байт. Опциональный набор промпта (Z-Image, Qwen и VAE) скачивается
@@ -150,6 +155,11 @@ Minecraft-сервере. Локальный TripoSplat запускается �
 10. On the Source step choose Image and drop/select a PNG/JPEG, or choose Prompt
     and describe the object. Seed is under Advanced settings. Continue to Block
     settings, choose the name, voxel preset, palette, and output, then create it.
+
+`All` contains all 399 eligible opaque full-cube blocks, `Survival` excludes
+blocks unavailable in ordinary Survival, and `Solid Colors` keeps wool,
+concrete, and terracotta. Falling blocks such as sand and translucent blocks
+are excluded from every palette.
 
 The `.litematic` is saved under
 `<instance>/minecraft/schematics/minesplat/`, loaded by Litematica, and placed
