@@ -57,8 +57,9 @@ Build outputs:
 
 The target is read from the checked-out line's `gradle.properties`; a checkout
 builds exactly one Minecraft version. Run a development client with
-`./gradlew runClient`. Gradle runs on Java 21 and the included wrapper pins
-Gradle 9.2.1; the 1.20.1 line produces Java 17 bytecode. Use
+`./gradlew runClient`. Gradle runs on Java 21. The 1.21.11 line pins Gradle
+9.4.0, while the stable 1.21.1 and 1.20.1 lines pin Gradle 9.2.1; the 1.20.1
+line produces Java 17 bytecode. Use
 `./gradlew runClientCnb` for a development run that copies the target's exact
 optional C&B distribution into `run-cnb/mods`.
 
