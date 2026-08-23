@@ -52,7 +52,7 @@ class TripoSplatApiClientTest {
         assertEquals(Set.of(
                         "input_artifact_id", "seed", "steps", "guidance",
                         "num_gaussians", "erode_radius"),
-                generationBodies.getFirst().keySet());
+                generationBodies.get(0).keySet());
         for (JsonObject body : generationBodies) {
             assertEquals(32768, body.get("num_gaussians").getAsInt());
             assertEquals(20, body.get("steps").getAsInt());
@@ -69,7 +69,7 @@ class TripoSplatApiClientTest {
         client.enqueueTextGeneration("  a mossy stone cottage  ", 73).join();
 
         assertEquals(1, textGenerationBodies.size());
-        JsonObject body = textGenerationBodies.getFirst();
+        JsonObject body = textGenerationBodies.get(0);
         assertEquals(Set.of(
                         "prompt", "seed", "width", "height", "image_steps",
                         "steps", "guidance", "num_gaussians", "erode_radius"),
@@ -144,7 +144,7 @@ class TripoSplatApiClientTest {
                 "input_artifact_id", "resolution", "opacity_threshold",
                 "color_weight_power", "iso", "tolerance",
                 "integration_steps", "chunk_depth");
-        JsonObject baseline = voxelBodies.getFirst().deepCopy();
+        JsonObject baseline = voxelBodies.get(0).deepCopy();
         baseline.remove("resolution");
         for (int index = 0; index < voxelBodies.size(); index++) {
             JsonObject body = voxelBodies.get(index);

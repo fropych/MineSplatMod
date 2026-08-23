@@ -6,6 +6,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import io.github.yromko.minesplat.config.PaletteProfile;
+import io.github.yromko.minesplat.internal.TargetMetadata;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -29,24 +30,35 @@ public final class BlockPalette {
     }
 
     public static BlockPalette loadDefault() {
-        String resource = "/assets/minesplat/palette/palette-1.21.1.json";
+        String minecraftVersion = TargetMetadata.current().minecraftVersion();
+        String resource = "/assets/minesplat/palette/palette-"
+                + minecraftVersion + ".json";
         try (InputStream stream = BlockPalette.class.getResourceAsStream(resource)) {
             if (stream == null) {
                 throw new IllegalStateException("Missing block palette resource " + resource);
             }
             JsonObject root = GSON.fromJson(
                     new InputStreamReader(stream, StandardCharsets.UTF_8), JsonObject.class);
-            return parse(root);
+            return parse(root, minecraftVersion);
         } catch (IOException | JsonParseException exception) {
-            throw new IllegalStateException("Cannot load MineSplat block palette", exception);
+            throw new IllegalStateException(
+                    "Cannot load MineSplat block palette for Minecraft " + minecraftVersion,
+                    exception);
         }
     }
 
-    static BlockPalette parse(JsonObject root) {
-        if (root == null || !root.has("minecraftVersion")
-                || !"1.21.1".equals(root.get("minecraftVersion").getAsString())
+    static BlockPalette parse(JsonObject root, String expectedMinecraftVersion) {
+        if (root == null || !root.has("schemaVersion")
+                || root.get("schemaVersion").getAsInt() != 1
+                || !root.has("minecraftVersion")
                 || !root.has("entries") || !root.get("entries").isJsonArray()) {
             throw new JsonParseException("Unsupported palette schema");
+        }
+        String paletteMinecraftVersion = root.get("minecraftVersion").getAsString();
+        if (!expectedMinecraftVersion.equals(paletteMinecraftVersion)) {
+            throw new JsonParseException(
+                    "Palette targets Minecraft " + paletteMinecraftVersion
+                            + " but this build targets " + expectedMinecraftVersion);
         }
         List<PaletteEntry> result = new ArrayList<>();
         for (JsonElement element : root.getAsJsonArray("entries")) {

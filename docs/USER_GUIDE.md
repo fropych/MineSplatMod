@@ -7,8 +7,12 @@
 1. Установите актуальный [Prism Launcher](https://prismlauncher.org/) и добавьте
    Microsoft-аккаунт, на котором куплен Minecraft Java Edition.
 2. В Prism нажмите `Add Instance → Import`.
-3. Выберите `minesplat-prism-1.21.1-0.4.0.mrpack`.
-4. Откройте настройки инстанса и проверьте, что выбрана Java 21. На Apple Silicon
+3. Скачайте из [GitHub Releases](https://github.com/fropych/MineSplatMod/releases)
+   и выберите `.mrpack`, точно соответствующий версии Minecraft, например
+   `minesplat-prism-1.21.1-0.5.0.mrpack`. Пакеты разных версий несовместимы;
+   опубликованный рядом `SHA256SUMS` позволяет проверить загрузку.
+4. Откройте настройки инстанса и проверьте Java: для Minecraft 1.20.1 нужна
+   Java 17, для 1.21.1 и 1.21.11 — Java 21. На Apple Silicon
    нужна ARM64/AArch64 Java; на Intel Mac — x64 Java.
 5. Выделите инстансу 4–6 GiB RAM.
 6. Запустите его один раз и создайте или откройте мир.
@@ -33,10 +37,11 @@
     настройках. Нажмите «Далее: настройки блоков», задайте имя, разрешение,
     палитру и формат результата, затем создайте схему или миниатюру.
 
-Палитра `Все` содержит все 399 подходящих непрозрачных полноразмерных блоков,
-`Выживание` исключает недоступные в обычном Survival блоки, а `Однотонные
-цвета` оставляет шерсть, бетон и терракоту. Падающие блоки вроде песка и
-полупрозрачные блоки не используются ни в одной палитре.
+Палитра `Все` содержит подходящие непрозрачные полноразмерные блоки текущей
+версии Minecraft, `Выживание` исключает недоступные в обычном Survival блоки,
+а `Однотонные цвета` оставляет шерсть, бетон и терракоту. Падающие блоки вроде
+песка и полупрозрачные блоки не используются ни в одной палитре. Наборы и цвета
+блоков рассчитываются отдельно для каждой поддерживаемой версии Minecraft.
 
 Нажатие на кнопку палитры открывает отдельный менеджер. В нём можно выбрать
 встроенную палитру либо создать, изменить, скопировать или удалить свою. В
@@ -81,7 +86,8 @@ Gaussian-модель. `1024³` совпадает с максимальным �
 Litematica работает без него.
 
 1. В Prism откройте `Edit Instance → Mods → Download Mods`.
-2. Найдите Chisels & Bits и установите точную Fabric-версию `21.1.33`.
+2. Найдите Chisels & Bits и установите точную Fabric-версию для своего Minecraft:
+   `20.1.20` для 1.20.1, `21.1.33` для 1.21.1 или `21.11.45` для 1.21.11.
    Подтвердите зависимости, которые предложит Prism.
 3. Запустите singleplayer-мир и переключитесь в Creative.
 4. На шаге «Блоки» выберите «Миниатюра Chisels & Bits» и создайте blueprint.
@@ -107,22 +113,29 @@ Blueprint-файлы сохраняются в
 C&B bit; при стандартной сетке 16×16×16 resolution 32/64/128/256/512/1024
 занимает максимум 2/4/8/16/32/64 блоков по каждой оси.
 
-Создавать `.msbp` можно в любом открытом мире, но размещать их в версии 0.4.0
+Создавать `.msbp` можно в любом открытом мире, но размещать их в версии 0.5.0
 можно только в singleplayer Creative. Litematica для C&B-экспорта не
 используется.
 
 ### Ручная установка
 
-1. В Prism нажмите `Add Instance → Custom`.
-2. Выберите Minecraft `1.21.1` и Fabric Loader `0.16.7`.
-3. В `Edit → Mods → Download Mods` установите точные версии:
-   - Fabric API `0.107.0+1.21.1`;
-   - Litematica `0.19.50`;
-   - MaLiLib `0.21.0`;
-   - Mod Menu `11.0.3`.
-4. Через `Add File` добавьте
-   `minesplat-fabric-1.21.1-0.4.0.jar`.
-5. Выберите Java 21, выделите 4–6 GiB памяти и выполните шаги 6–10 выше.
+1. В Prism нажмите `Add Instance → Custom` и выберите нужную версию Minecraft.
+2. Установите Fabric Loader `0.19.3`.
+3. В `Edit → Mods → Download Mods` установите точные зависимости из таблицы:
+
+   | Minecraft | Java | Fabric API | Litematica | MaLiLib | Mod Menu | C&B (опционально) |
+   | --- | ---: | --- | --- | --- | --- | --- |
+   | 1.20.1 | 17 | `0.92.11+1.20.1` | `0.15.4` | `0.16.3` | `7.2.2` | `20.1.20` |
+   | 1.21.1 | 21 | `0.116.15+1.21.1` | `0.19.61` | `0.21.10` | `11.0.3` | `21.1.33` |
+   | 1.21.11 | 21 | `0.141.6+1.21.11` | `0.26.13` | `0.27.18` | `17.0.0` | `21.11.45` |
+
+4. Через `Add File` добавьте строго соответствующий JAR вида
+   `minesplat-fabric-<minecraft>-0.5.0.jar`.
+5. Выберите Java из таблицы, выделите 4–6 GiB памяти и выполните шаги 6–10 выше.
+
+Для каждой версии публикуются отдельные JAR и `.mrpack`; общий Windows/Linux
+TripoSplat runtime уже находится внутри каждого из этих Minecraft-специфичных
+JAR. Chisels & Bits в `.mrpack` не включается.
 
 MineSplat, Litematica и MaLiLib устанавливаются только в клиент. Они не нужны на
 Minecraft-сервере. Локальный TripoSplat запускается автоматически только на
@@ -149,8 +162,12 @@ Minecraft-сервере. Локальный TripoSplat запускается �
 1. Install a current [Prism Launcher](https://prismlauncher.org/) and add the
    Microsoft account that owns Minecraft Java Edition.
 2. Select `Add Instance → Import`.
-3. Choose `minesplat-prism-1.21.1-0.4.0.mrpack`.
-4. Verify the instance uses Java 21. Use ARM64/AArch64 Java on Apple Silicon and
+3. Download the `.mrpack` that exactly matches the Minecraft version from
+   [GitHub Releases](https://github.com/fropych/MineSplatMod/releases), for
+   example `minesplat-prism-1.21.1-0.5.0.mrpack`. Packs for different targets
+   are not interchangeable; the adjacent `SHA256SUMS` verifies the download.
+4. Verify the instance uses Java 17 for Minecraft 1.20.1 or Java 21 for 1.21.1
+   and 1.21.11. Use ARM64/AArch64 Java on Apple Silicon and
    x64 Java on an Intel Mac.
 5. Allocate 4–6 GiB RAM.
 6. Launch once and create or open a world.
@@ -166,10 +183,11 @@ Minecraft-сервере. Локальный TripoSplat запускается �
     and describe the object. Seed is under Advanced settings. Continue to Block
     settings, choose the name, voxel preset, palette, and output, then create it.
 
-`All` contains all 399 eligible opaque full-cube blocks, `Survival` excludes
-blocks unavailable in ordinary Survival, and `Solid Colors` keeps wool,
-concrete, and terracotta. Falling blocks such as sand and translucent blocks
-are excluded from every palette.
+`All` contains the eligible opaque full-cube blocks for the current Minecraft
+version, `Survival` excludes blocks unavailable in ordinary Survival, and
+`Solid Colors` keeps wool, concrete, and terracotta. Falling blocks such as
+sand and translucent blocks are excluded from every palette. Block sets and
+colors are calculated separately for every supported Minecraft target.
 
 The palette button opens a dedicated manager where built-in palettes can be
 selected and custom palettes can be created, edited, duplicated, or deleted.
@@ -179,7 +197,7 @@ global blacklist is applied on top of the selected palette.
 
 The `.litematic` is saved under
 `<instance>/minecraft/schematics/minesplat/`, loaded by Litematica, and placed
-in front of the player. Closing the MineSplat screen does not stop a task.
+in front of the player.
 
 The local executable is bundled in the JAR. Five pinned base files are
 downloaded and three are converted to the runtime format (3,609,105,870 final
@@ -193,13 +211,27 @@ current driver; NVIDIA is the primary upstream-tested target. There is no CPU
 backend and no automatic fallback to Remote. Use Remote on macOS, ARM64/AArch64,
 or any unsupported platform.
 
+Closing the window while work is in progress does not stop the task. MineSplat
+retries a temporary network failure after 1, 2, and 4 seconds, then offers
+`Retry connection`. API v1 cannot cancel a GPU job that has already started;
+only a queued job can be cancelled.
+
+Changing 32/64/128/256/512/1024 in the same session repeats only voxelization
+of the existing PLY. Changing the palette or blacklist at the same resolution
+rebuilds the output locally. Changing the seed, image, or prompt creates a new
+Gaussian model. `1024³` matches the TripoSplat API maximum but is exceptionally
+heavy: allocate at least 12–16 GiB to the instance. TSVOX, color matching, and
+the Litematica container can use hundreds of megabytes, while server-side
+voxelization can take substantially longer.
+
 ### Optional Chisels & Bits integration
 
 The base `.mrpack` deliberately does not bundle Chisels & Bits, and normal
 Litematica export works without it.
 
 1. Open `Edit Instance → Mods → Download Mods` in Prism.
-2. Install the exact Fabric release Chisels & Bits `21.1.33` and accept the
+2. Install the exact Fabric release for your target: Chisels & Bits `20.1.20`
+   on 1.20.1, `21.1.33` on 1.21.1, or `21.11.45` on 1.21.11. Accept the
    dependencies suggested by Prism.
 3. Open a singleplayer world in Creative mode.
 4. On the Blocks step select `Chisels & Bits miniature` and generate the blueprint.
@@ -207,31 +239,49 @@ Litematica export works without it.
 6. Position the colored hologram with `R` / `Shift+R`, the arrow keys, and
    Page Up/Down. Right-click confirms; Escape cancels.
 
+All controls except mouse confirmation can be rebound under Controls.
+
 Saved `.msbp` files are kept under
 `<instance>/minecraft/minesplat/blueprints/` and can be reopened from `Saved
 miniatures` after a restart. One TSVOX voxel maps to one C&B bit. Resolutions
 32/64/128/256/512/1024 occupy at most 2/4/8/16/32/64 host blocks per side with
-the standard 16-bit grid. `1024³` matches the TripoSplat API maximum, is
-exceptionally heavy, and benefits from at least 12–16 GiB allocated to the
-instance. Placement requires every occupied host block to be air and is
-supported only in Creative singleplayer in MineSplat 0.4.0. This output path
-does not create or place a Litematica schematic. MineSplat also places one
-invisible level-15 light near the center of every occupied 5×5×5 host-block
-section. If the center is occupied, the nearest air position is used; existing
-world blocks are never replaced.
+the standard 16-bit grid. Placement requires every occupied host block to be
+air and is supported only in Creative singleplayer in MineSplat 0.5.0. This
+output path does not create or place a Litematica schematic. MineSplat also
+places one invisible level-15 light near the center of every occupied 5×5×5
+host-block section. If the center is occupied, the nearest air position is
+used; existing world blocks are never replaced.
 
 ### Manual install
 
-Create a Minecraft 1.21.1 instance with Fabric Loader 0.16.7. Install Fabric API
-0.107.0+1.21.1, Litematica 0.19.50, MaLiLib 0.21.0, and Mod Menu 11.0.3, then
-add the MineSplat JAR. Use Java 21 and allocate 4–6 GiB RAM.
+Create an instance for the selected Minecraft target and install Fabric Loader
+`0.19.3`, then use its exact dependency row:
 
-The JAR filename for this release is
-`minesplat-fabric-1.21.1-0.4.0.jar`.
+| Minecraft | Java | Fabric API | Litematica | MaLiLib | Mod Menu | C&B (optional) |
+| --- | ---: | --- | --- | --- | --- | --- |
+| 1.20.1 | 17 | `0.92.11+1.20.1` | `0.15.4` | `0.16.3` | `7.2.2` | `20.1.20` |
+| 1.21.1 | 21 | `0.116.15+1.21.1` | `0.19.61` | `0.21.10` | `11.0.3` | `21.1.33` |
+| 1.21.11 | 21 | `0.141.6+1.21.11` | `0.26.13` | `0.27.18` | `17.0.0` | `21.11.45` |
+
+Add the matching `minesplat-fabric-<minecraft>-0.5.0.jar` and allocate 4–6 GiB
+RAM. Every target has a separate JAR and `.mrpack`; the same universal
+Windows/Linux TripoSplat runtime is bundled inside each Minecraft-specific JAR.
+Chisels & Bits remains optional and is not included in the `.mrpack`.
 
 MineSplat is client-only. No MineSplat, Litematica, or MaLiLib installation is
 needed on a Minecraft server. The local API binds only to `127.0.0.1`. TLS and
 authentication for a Remote API remain the API owner's responsibility.
+
+### Final end-to-end validation
+
+Remote validation requires a reachable TripoSplat API v1 base URL, one reference
+PNG/JPEG image, and preferably two additional images: a brightly colored object
+and an object with thin details.
+
+Local validation requires Windows/Linux x86-64 with a Vulkan GPU and about
+6 GiB free for base models. Local prompts require about 7.2 GiB more and a
+reference prompt. Both modes must produce compatible API v1 and TSVOX v2
+contracts.
 
 Prism documentation:
 [creating instances](https://prismlauncher.org/wiki/getting-started/create-instance/)

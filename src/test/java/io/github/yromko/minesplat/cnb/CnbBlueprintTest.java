@@ -73,8 +73,8 @@ class CnbBlueprintTest {
         CnbPackedModel rotated = CnbPacking.pack(source, 16, 1);
         assertEquals(1, rotated.width());
         assertEquals(2, rotated.depth());
-        assertEquals(0, rotated.hostBlocks().getFirst().x());
-        assertEquals(1, rotated.hostBlocks().getFirst().z());
+        assertEquals(0, rotated.hostBlocks().get(0).x());
+        assertEquals(1, rotated.hostBlocks().get(0).z());
 
         int x = 7;
         int z = 3;

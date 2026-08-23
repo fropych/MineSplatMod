@@ -1,6 +1,7 @@
 package io.github.yromko.minesplat.palette;
 
 import com.google.gson.JsonParser;
+import com.google.gson.JsonParseException;
 import io.github.yromko.minesplat.config.PaletteProfile;
 import io.github.yromko.minesplat.testutil.TsvoxFixtures;
 import io.github.yromko.minesplat.voxel.TsvoxGrid;
@@ -123,6 +124,19 @@ class ColorMatcherTest {
     }
 
     @Test
+    void rejectsPaletteForAnotherMinecraftVersion() {
+        var root = JsonParser.parseString("""
+                {"schemaVersion":1,"minecraftVersion":"1.20.1","entries":[]}
+                """).getAsJsonObject();
+
+        JsonParseException exception = assertThrows(
+                JsonParseException.class,
+                () -> BlockPalette.parse(root, "1.21.1"));
+        assertTrue(exception.getMessage().contains("1.20.1"));
+        assertTrue(exception.getMessage().contains("1.21.1"));
+    }
+
+    @Test
     void matchesAFullBaseGridAgainstTheCompletePalette() {
         int voxelCount = 32 * 32 * 32;
         int[] indices = new int[voxelCount];
@@ -181,8 +195,8 @@ class ColorMatcherTest {
 
     private static BlockPalette parse(String entries) {
         return BlockPalette.parse(JsonParser.parseString("""
-                {"minecraftVersion":"1.21.1","entries":%s}
-                """.formatted(entries)).getAsJsonObject());
+                {"schemaVersion":1,"minecraftVersion":"test","entries":%s}
+                """.formatted(entries)).getAsJsonObject(), "test");
     }
 
     private static int linear(int x, int y, int z, int resolution) {

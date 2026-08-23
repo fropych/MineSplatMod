@@ -767,7 +767,7 @@ public final class MineSplatScreen extends Screen {
             persistCurrentFields();
             draft.sourceMode(GenerationSourceMode.IMAGE);
             page = Page.SOURCE;
-            selectImage(paths.getFirst());
+            selectImage(paths.get(0));
         }
     }
 

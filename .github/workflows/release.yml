@@ -1,0 +1,233 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "mc*-*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag to validate without publishing, for example mc1.21.1-0.5.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Validate and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
+      minecraft: ${{ steps.metadata.outputs.minecraft }}
+      version: ${{ steps.metadata.outputs.version }}
+      jar_name: ${{ steps.metadata.outputs.jar_name }}
+      mrpack_name: ${{ steps.metadata.outputs.mrpack_name }}
+      artifact_name: ${{ steps.metadata.outputs.artifact_name }}
+
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Validate tag, branch and project metadata
+        id: metadata
+        env:
+          REQUESTED_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${REQUESTED_TAG}"
+          if [[ ! "${tag}" =~ ^mc(1\.20\.1|1\.21\.1|1\.21\.11)-([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "Invalid release tag: ${tag}" >&2
+            exit 1
+          fi
+
+          tag_mc="${BASH_REMATCH[1]}"
+          tag_version="${BASH_REMATCH[2]}"
+          project_mc="$(awk -F= '$1 == "minecraft_version" { print $2 }' gradle.properties)"
+          project_version="$(awk -F= '$1 == "mod_version" { print $2 }' gradle.properties)"
+
+          if [[ "${tag_mc}" != "${project_mc}" || "${tag_version}" != "${project_version}" ]]; then
+            echo "Tag ${tag} does not match gradle.properties (${project_mc}-${project_version})." >&2
+            exit 1
+          fi
+
+          case "${tag_mc}" in
+            1.20.1) expected_branch="1.20.1/stable" ;;
+            1.21.1) expected_branch="1.21.1/stable" ;;
+            1.21.11) expected_branch="main" ;;
+          esac
+
+          git fetch --no-tags origin \
+            "+refs/heads/${expected_branch}:refs/remotes/origin/${expected_branch}"
+          release_commit="$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          if ! git merge-base --is-ancestor "${release_commit}" "origin/${expected_branch}"; then
+            echo "Release commit ${release_commit} is not part of ${expected_branch}." >&2
+            exit 1
+          fi
+
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${GITHUB_REF_NAME}" != "${expected_branch}" ]]; then
+            echo "Dry run for ${tag_mc} must be dispatched from ${expected_branch}." >&2
+            exit 1
+          fi
+
+          jar_name="minesplat-fabric-${tag_mc}-${tag_version}.jar"
+          mrpack_name="minesplat-prism-${tag_mc}-${tag_version}.mrpack"
+          artifact_name="minesplat-release-${tag_mc}-${tag_version}"
+
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "minecraft=${tag_mc}" >> "${GITHUB_OUTPUT}"
+          echo "version=${tag_version}" >> "${GITHUB_OUTPUT}"
+          echo "jar_name=${jar_name}" >> "${GITHUB_OUTPUT}"
+          echo "mrpack_name=${mrpack_name}" >> "${GITHUB_OUTPUT}"
+          echo "artifact_name=${artifact_name}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Clean, build and verify
+        run: ./gradlew --no-daemon clean build
+
+      - name: Stage immutable release files
+        env:
+          JAR_NAME: ${{ steps.metadata.outputs.jar_name }}
+          MRPACK_NAME: ${{ steps.metadata.outputs.mrpack_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/release
+          install -m 0644 "build/libs/${JAR_NAME}" "build/release/${JAR_NAME}"
+          install -m 0644 "build/distributions/${MRPACK_NAME}" "build/release/${MRPACK_NAME}"
+
+          if find build/release -maxdepth 1 -type f -name '*-sources.jar' | grep -q .; then
+            echo "A sources JAR was staged for release." >&2
+            exit 1
+          fi
+
+          (
+            cd build/release
+            sha256sum "${JAR_NAME}" "${MRPACK_NAME}" > SHA256SUMS
+            sha256sum --check SHA256SUMS
+          )
+
+      - name: Upload release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.metadata.outputs.artifact_name }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            build/release/${{ steps.metadata.outputs.jar_name }}
+            build/release/${{ steps.metadata.outputs.mrpack_name }}
+            build/release/SHA256SUMS
+
+      - name: Report dry run
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "Dry run passed; no GitHub Release was created."
+
+  publish:
+    name: Publish GitHub Release
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out tag history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Download verified release candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: release
+
+      - name: Verify downloaded checksums
+        working-directory: release
+        run: sha256sum --check SHA256SUMS
+
+      - name: Create draft, upload assets and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+          MC_VERSION: ${{ needs.build.outputs.minecraft }}
+          MOD_VERSION: ${{ needs.build.outputs.version }}
+          JAR_NAME: ${{ needs.build.outputs.jar_name }}
+          MRPACK_NAME: ${{ needs.build.outputs.mrpack_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if is_draft="$(gh release view "${TAG}" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [[ "${is_draft}" != "true" ]]; then
+              echo "Release ${TAG} is already published; immutable tags are not overwritten." >&2
+              exit 1
+            fi
+          else
+            previous_tag=""
+            while IFS= read -r candidate; do
+              if [[ "${candidate}" != "${TAG}" ]]; then
+                previous_tag="${candidate}"
+                break
+              fi
+            done < <(git tag --list "mc${MC_VERSION}-*" --sort=-version:refname)
+
+            create_args=(
+              "${TAG}"
+              --draft
+              --verify-tag
+              --generate-notes
+              --title "MineSplat ${MOD_VERSION} for Minecraft ${MC_VERSION}"
+            )
+            if [[ -n "${previous_tag}" ]]; then
+              create_args+=(--notes-start-tag "${previous_tag}")
+            fi
+            gh release create "${create_args[@]}"
+          fi
+
+          gh release upload "${TAG}" \
+            "release/${JAR_NAME}" \
+            "release/${MRPACK_NAME}" \
+            "release/SHA256SUMS" \
+            --clobber
+
+          mapfile -t actual_assets < <(
+            gh release view "${TAG}" --json assets --jq '.assets[].name' | sort
+          )
+          mapfile -t expected_assets < <(
+            printf '%s\n' "${JAR_NAME}" "${MRPACK_NAME}" SHA256SUMS | sort
+          )
+          if [[ "${actual_assets[*]}" != "${expected_assets[*]}" ]]; then
+            echo "Draft ${TAG} contains unexpected release assets." >&2
+            printf 'Expected: %s\n' "${expected_assets[*]}" >&2
+            printf 'Actual:   %s\n' "${actual_assets[*]}" >&2
+            exit 1
+          fi
+
+          if [[ "${MC_VERSION}" == "1.21.11" ]]; then
+            gh release edit "${TAG}" --draft=false --latest=true
+          else
+            gh release edit "${TAG}" --draft=false --latest=false
+          fi

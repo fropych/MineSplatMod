@@ -59,18 +59,52 @@ uses a client-side block raycast up to 1024 blocks, bounded in practice by loade
 chunks.
 
 The optional C&B bridge is loaded reflectively only after Fabric Loader confirms
-mod id `chiselsandbits` at exact version 21.1.33. Core signatures contain no C&B
-types. `.msbp` stores exact block-state strings, face colors, and packed sparse
-voxel/palette indices rather than C&B internal NBT. Placement is limited to a
-Creative integrated server, preflights every occupied host position, then uses
-the public C&B mutator API in bounded server-tick batches.
+mod id `chiselsandbits` at the exact release declared by the target metadata:
+`20.1.20` for Minecraft 1.20.1, `21.1.33` for 1.21.1, and `21.11.45` for
+1.21.11. Core signatures contain no C&B types. `.msbp` stores exact block-state
+strings, face colors, and packed sparse voxel/palette indices rather than C&B
+internal NBT. Placement is limited to a Creative integrated server, preflights
+every occupied host position, then uses the public C&B mutator API in bounded
+server-tick batches.
 
 Artifacts are deleted best-effort according to the API contract. The generation
 PLY remains on the server while the current client session can reuse it, then is
 deleted on explicit session finish, a new generation, or client shutdown.
 
-One universal JAR carries the independently hashed official Windows and Linux
-x86-64 assets from TripoSplatVulkan release `v0.2.0`, source commit
+Each Minecraft-specific JAR is universal only along the native-runtime axis: it
+carries the independently hashed official Windows and Linux x86-64 assets from
+TripoSplatVulkan release `v0.2.0`, source commit
 `4bb05dec707f1f34f47aac2d679c1bd7021eb779`. The upstream project remains an
 unmodified Git submodule pinned to the same commit. Unsupported OS/CPU pairs
 expose only Remote mode; local inference is Vulkan-only and has no CPU backend.
+
+## Version and release architecture
+
+MineSplat builds one Minecraft target per Git line. `main` targets Minecraft
+1.21.11; `1.21.1/stable` and `1.20.1/stable` are maintenance lines. Shared
+changes are backported as reviewed, atomic commits instead of merging the
+feature line wholesale into an older API surface.
+
+The checked-out line's `gradle.properties` is the source of truth for Minecraft,
+Java, Yarn, Fabric Loader/API, Litematica, MaLiLib, Mod Menu, C&B, and MineSplat
+versions. Resource processing expands that data into `fabric.mod.json` and
+`minesplat-target.properties`. The matching versioned palette is selected from
+the same target metadata. Custom palettes remain block-ID based and therefore
+portable; IDs absent from the current registry are retained on disk but omitted
+from the effective palette.
+
+Every line emits exactly one remapped JAR and one matching version-specific
+Prism pack:
+
+```text
+minesplat-fabric-<minecraft>-<mod-version>.jar
+minesplat-prism-<minecraft>-<mod-version>.mrpack
+```
+
+CI runs a clean build, target/resource validation, palette checks, tests, and
+pack validation for all supported branches. Tags use
+`mc<minecraft>-<mod-version>`. The release workflow rejects a tag whose target,
+mod version, or branch ancestry does not match, stages only the main JAR and
+matching `.mrpack`, generates `SHA256SUMS`, and publishes them through a draft
+GitHub Release. A dispatch run is validation-only. Only the 1.21.11 release is
+marked as the latest line.

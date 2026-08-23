@@ -8,6 +8,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.IntStream;
 import java.util.regex.Pattern;
 
 /** Builds the version-independent block-category map from reviewed plain text. */
@@ -22,18 +23,23 @@ public final class BuildBlockCategories {
     }
 
     public static void main(String[] arguments) throws Exception {
-        if (arguments.length != 3) {
+        if (arguments.length < 3) {
             System.err.println(
                     "Usage: java tools/palette/BuildBlockCategories.java "
-                            + "<block-names.txt> <block-categories.txt> <output.json>");
+                            + "<block-names.txt> <block-categories.txt> <output.json> "
+                            + "[additional-block-names.txt ...]");
             System.exit(2);
         }
 
-        Path namesPath = Path.of(arguments[0]).toAbsolutePath().normalize();
+        List<Path> namesPaths = new ArrayList<>();
+        namesPaths.add(Path.of(arguments[0]).toAbsolutePath().normalize());
+        IntStream.range(3, arguments.length)
+                .mapToObj(index -> Path.of(arguments[index]).toAbsolutePath().normalize())
+                .forEach(namesPaths::add);
         Path classificationPath = Path.of(arguments[1]).toAbsolutePath().normalize();
         Path outputPath = Path.of(arguments[2]).toAbsolutePath().normalize();
 
-        List<String> expectedBlocks = readBlockNames(namesPath);
+        List<String> expectedBlocks = readBlockNames(namesPaths);
         Map<String, List<String>> classifications = readClassifications(classificationPath);
         validateCoverage(expectedBlocks, classifications);
         writeJson(outputPath, classifications);
@@ -51,28 +57,33 @@ public final class BuildBlockCategories {
         System.out.println("Category map written to: " + outputPath);
     }
 
-    private static List<String> readBlockNames(Path input) throws IOException {
-        List<String> result = new ArrayList<>();
-        Set<String> seen = new LinkedHashSet<>();
-        for (String rawLine : Files.readAllLines(input, StandardCharsets.UTF_8)) {
-            String block = rawLine.strip();
-            if (block.isEmpty()) {
-                throw new IllegalArgumentException("Blank line in " + input);
+    private static List<String> readBlockNames(List<Path> inputs) throws IOException {
+        Set<String> union = new LinkedHashSet<>();
+        for (Path input : inputs) {
+            List<String> versionBlocks = new ArrayList<>();
+            Set<String> seen = new LinkedHashSet<>();
+            for (String rawLine : Files.readAllLines(input, StandardCharsets.UTF_8)) {
+                String block = rawLine.strip();
+                if (block.isEmpty()) {
+                    throw new IllegalArgumentException("Blank line in " + input);
+                }
+                validateBlockId(block, input);
+                if (!seen.add(block)) {
+                    throw new IllegalArgumentException(
+                            "Duplicate block " + block + " in " + input);
+                }
+                versionBlocks.add(block);
             }
-            validateBlockId(block, input);
-            if (!seen.add(block)) {
-                throw new IllegalArgumentException("Duplicate block " + block + " in " + input);
+            if (versionBlocks.isEmpty()) {
+                throw new IllegalArgumentException("No block names in " + input);
             }
-            result.add(block);
+            List<String> sorted = versionBlocks.stream().sorted().toList();
+            if (!versionBlocks.equals(sorted)) {
+                throw new IllegalArgumentException("Block names must be sorted in " + input);
+            }
+            union.addAll(versionBlocks);
         }
-        if (result.isEmpty()) {
-            throw new IllegalArgumentException("No block names in " + input);
-        }
-        List<String> sorted = result.stream().sorted().toList();
-        if (!result.equals(sorted)) {
-            throw new IllegalArgumentException("Block names must be sorted in " + input);
-        }
-        return result;
+        return union.stream().sorted().toList();
     }
 
     private static Map<String, List<String>> readClassifications(Path input)
@@ -94,7 +105,7 @@ public final class BuildBlockCategories {
             }
 
             List<String> categories = List.of(columns[1].split(",", -1));
-            if (categories.isEmpty() || !categories.getFirst().equals("all")) {
+            if (categories.isEmpty() || !categories.get(0).equals("all")) {
                 throw new IllegalArgumentException(block + " must belong to all");
             }
             if (new LinkedHashSet<>(categories).size() != categories.size()) {

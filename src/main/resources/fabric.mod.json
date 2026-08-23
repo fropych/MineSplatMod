@@ -8,7 +8,7 @@
     "yromko"
   ],
   "contact": {
-    "sources": "https://github.com/yromko/MineSplatMod"
+    "sources": "https://github.com/fropych/MineSplatMod"
   },
   "license": "MIT",
   "environment": "client",
@@ -21,15 +21,15 @@
     ]
   },
   "depends": {
-    "fabricloader": ">=0.16.7",
-    "fabric-api": "*",
-    "minecraft": "1.21.1",
-    "java": ">=21",
-    "litematica": "0.19.50",
-    "malilib": ">=0.21.0 <0.22.0"
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": ">=${fabric_api_version}",
+    "minecraft": "${minecraft_version}",
+    "java": ">=${java_version}",
+    "litematica": "${litematica_version}",
+    "malilib": ">=${malilib_version} <${malilib_next_version}"
   },
   "suggests": {
-    "modmenu": ">=11.0.0",
-    "chiselsandbits": "21.1.33"
+    "modmenu": ">=${modmenu_version}",
+    "chiselsandbits": "${chisels_bits_version}"
   }
 }

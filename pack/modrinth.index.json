@@ -1,69 +1,69 @@
 {
   "formatVersion": 1,
   "game": "minecraft",
-  "versionId": "0.4.0",
-  "name": "MineSplat 0.4.0",
+  "versionId": "${version}",
+  "name": "MineSplat ${version} for Minecraft ${minecraft_version}",
   "summary": "Client-side image/prompt workflow for Litematica and optional Chisels & Bits.",
   "files": [
     {
-      "path": "mods/fabric-api-0.107.0+1.21.1.jar",
+      "path": "mods/${fabric_api_file_name}",
       "hashes": {
-        "sha512": "04cf3f205c83882c7c741da392d10cbf9ab471fb44836d753f9673b7b37ddb9b2842cc8e72d6d7f36c48d121715f9f9dae8d20e597f2c0de3bb8abd37037baaa"
+        "sha512": "${fabric_api_sha512}"
       },
       "env": {
         "client": "required",
         "server": "unsupported"
       },
       "downloads": [
-        "https://cdn.modrinth.com/data/P7dR8mSH/versions/thGkUOxt/fabric-api-0.107.0%2B1.21.1.jar"
+        "${fabric_api_download_url}"
       ],
-      "fileSize": 2340631
+      "fileSize": ${fabric_api_file_size}
     },
     {
-      "path": "mods/litematica-fabric-1.21.1-0.19.50.jar",
+      "path": "mods/${litematica_file_name}",
       "hashes": {
-        "sha512": "086fb42282bb8e286e7cdc08067c705989043f05b2179ddd5ea1835978ce0deb559b594281c712e25c5855951743155b75abbfca0e5b779a187445b634c46aea"
+        "sha512": "${litematica_sha512}"
       },
       "env": {
         "client": "required",
         "server": "unsupported"
       },
       "downloads": [
-        "https://cdn.modrinth.com/data/bEpr0Arc/versions/5kAmiBye/litematica-fabric-1.21.1-0.19.50.jar"
+        "${litematica_download_url}"
       ],
-      "fileSize": 1044263
+      "fileSize": ${litematica_file_size}
     },
     {
-      "path": "mods/malilib-fabric-1.21.1-0.21.0.jar",
+      "path": "mods/${malilib_file_name}",
       "hashes": {
-        "sha512": "4428fd358b35757a410ba90ba2704a24ffb5a140106cc8223c4f77ef078216ad2969e2e4df164d3a0b6946978d7407219dd4c83ab1755746e968f4244c24275c"
+        "sha512": "${malilib_sha512}"
       },
       "env": {
         "client": "required",
         "server": "unsupported"
       },
       "downloads": [
-        "https://cdn.modrinth.com/data/GcWjdA9I/versions/CQI1MTlR/malilib-fabric-1.21.1-0.21.0.jar"
+        "${malilib_download_url}"
       ],
-      "fileSize": 790339
+      "fileSize": ${malilib_file_size}
     },
     {
-      "path": "mods/modmenu-11.0.3.jar",
+      "path": "mods/${modmenu_file_name}",
       "hashes": {
-        "sha512": "4c6387a059c7ac9028acc3d78124af02a4495bef2c16783bbffe5bf449067daf2620708fd57f8725e46f0c34d0f571adf60f0869742bfe7f6101ddf13a2a87da"
+        "sha512": "${modmenu_sha512}"
       },
       "env": {
         "client": "required",
         "server": "unsupported"
       },
       "downloads": [
-        "https://cdn.modrinth.com/data/mOgUt4GM/versions/YIfqIJ8q/modmenu-11.0.3.jar"
+        "${modmenu_download_url}"
       ],
-      "fileSize": 973066
+      "fileSize": ${modmenu_file_size}
     }
   ],
   "dependencies": {
-    "minecraft": "1.21.1",
-    "fabric-loader": "0.16.7"
+    "minecraft": "${minecraft_version}",
+    "fabric-loader": "${loader_version}"
   }
 }

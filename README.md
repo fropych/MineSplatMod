@@ -1,9 +1,9 @@
 # MineSplat
 
-MineSplat is a client-side Fabric mod for Minecraft 1.21.1. It turns an image
-or text prompt into a fixed 32,768-Gaussian model, voxelizes it, maps TSVOX v2 colors to safe
-vanilla blocks in OKLab, and exports either a `.litematic` or an optional
-Chisels & Bits miniature.
+MineSplat is a client-side Fabric mod for Minecraft 1.20.1, 1.21.1, and
+1.21.11. It turns an image or text prompt into a fixed 32,768-Gaussian model,
+voxelizes it, maps TSVOX v2 colors to safe vanilla blocks in OKLab, and exports
+either a `.litematic` or an optional Chisels & Bits miniature.
 
 Inference can use either a user-supplied remote TripoSplat API v1 or the
 TripoSplatVulkan runtime bundled in the mod. Local mode starts that runtime as a
@@ -12,23 +12,33 @@ workflow. Local inference is available on Windows and Linux x86-64, requires a
 Vulkan 1.2-capable GPU with a current driver, and has no CPU fallback. Other
 platforms retain remote mode.
 
-## Locked runtime
+## Supported targets
 
-- Minecraft 1.21.1
-- Fabric Loader 0.16.7
-- Fabric API 0.107.0+1.21.1
-- Litematica 0.19.50
-- MaLiLib 0.21.0
-- Mod Menu 11.0.3 (optional for the JAR, included in the Prism pack)
-- Chisels & Bits 21.1.33 (optional, installed separately)
-- Java 21
+Each Minecraft line has its own JAR, Prism `.mrpack`, dependency lock, and
+vanilla block palette. Do not mix files between target versions.
+
+| Minecraft | Java | Yarn | Fabric API | Litematica | MaLiLib | Mod Menu | Chisels & Bits |
+| --- | ---: | --- | --- | --- | --- | --- | --- |
+| 1.20.1 | 17 | `1.20.1+build.10` | `0.92.11+1.20.1` | `0.15.4` | `0.16.3` | `7.2.2` | `20.1.20` |
+| 1.21.1 | 21 | `1.21.1+build.3` | `0.116.15+1.21.1` | `0.19.61` | `0.21.10` | `11.0.3` | `21.1.33` |
+| 1.21.11 | 21 | `1.21.11+build.6` | `0.141.6+1.21.11` | `0.26.13` | `0.27.18` | `17.0.0` | `21.11.45` |
+
+Fabric Loader is locked to `0.19.3` on every line. Mod Menu is optional in the
+standalone JAR and included in each Prism pack. Chisels & Bits is optional and
+must be installed separately at the exact version shown for the selected
+Minecraft target.
+
+`main` is the current 1.21.11 feature line. `1.21.1/stable` and
+`1.20.1/stable` receive compatible fixes through reviewed backport commits;
+version-specific changes remain on their own line.
 
 ## Install and use
 
 See the bilingual [user guide](docs/USER_GUIDE.md). The short version is:
-import the generated `.mrpack` into Prism Launcher, start a world, press
-`M + G`, and use Settings in the wizard header to choose Local or Remote
-inference. Local mode downloads and verifies
+download the `.mrpack` matching your Minecraft version from
+[GitHub Releases](https://github.com/fropych/MineSplatMod/releases), import it
+into Prism Launcher, start a world, press `M + G`, and use Settings in the
+wizard header to choose Local or Remote inference. Local mode downloads and verifies
 the pinned base model snapshot on first use. The separate Z-Image prompt models
 are optional and download only when explicitly requested; no model weights are
 embedded in the JAR.
@@ -42,15 +52,19 @@ embedded in the JAR.
 
 Build outputs:
 
-- `build/libs/minesplat-fabric-1.21.1-0.4.0.jar`
-- `build/distributions/minesplat-prism-1.21.1-0.4.0.mrpack`
+- `build/libs/minesplat-fabric-<minecraft>-<mod-version>.jar`
+- `build/distributions/minesplat-prism-<minecraft>-<mod-version>.mrpack`
 
-Run a development client with `./gradlew runClient`. Gradle 8.9 and Java 21 are
-required; the included wrapper pins Gradle. Use `./gradlew runClientCnb` for a
-development run that copies the optional C&B distribution into `run-cnb/mods`.
+The target is read from the checked-out line's `gradle.properties`; a checkout
+builds exactly one Minecraft version. Run a development client with
+`./gradlew runClient`. Gradle runs on Java 21 and the included wrapper pins
+Gradle 9.2.1; the 1.20.1 line produces Java 17 bytecode. Use
+`./gradlew runClientCnb` for a development run that copies the target's exact
+optional C&B distribution into `run-cnb/mods`.
 
-The universal JAR contains the official Linux and Windows x86-64 runtime assets
-from TripoSplatVulkan release `v0.2.0`, source commit
+Every Minecraft-specific JAR is universal with respect to local inference: it
+contains the official Linux and Windows x86-64 runtime assets from
+TripoSplatVulkan release `v0.2.0`, source commit
 `4bb05dec707f1f34f47aac2d679c1bd7021eb779`. The submodule lives at
 `third_party/TripoSplatVulkan`; initialize it with
 `git submodule update --init --recursive`. Native compilation is not part of
@@ -96,8 +110,11 @@ backend.
 
 ## Optional Chisels & Bits output
 
-MineSplat detects exactly Chisels & Bits 21.1.33 at runtime. Without it, the
-Litematica workflow remains fully functional and no C&B classes are linked.
+MineSplat detects only the exact C&B release selected for its Minecraft target:
+`20.1.20` on 1.20.1, `21.1.33` on 1.21.1, and `21.11.45` on 1.21.11. Without
+it, the Litematica workflow remains fully functional and no C&B classes are
+linked.
+
 With it installed, MineSplat saves sparse `.msbp` blueprints under
 `minecraft/minesplat/blueprints/`. In a Creative singleplayer world these can be
 positioned with a colored hologram, rotated with `R` / `Shift+R`, moved with the
@@ -108,6 +125,39 @@ server thread in bounded batches and rolls back MineSplat-created host blocks
 if placement fails. To avoid coarse C&B lighting shadows, placement also adds
 one invisible level-15 light block near the center of every occupied 5×5×5
 host-block section. Existing world blocks are never replaced.
+
+## Releases
+
+GitHub Actions builds and verifies pushes and pull requests for `main`,
+`1.21.1/stable`, and `1.20.1/stable`. A release is created only by pushing an
+annotated tag with this exact shape:
+
+```text
+mc<minecraft>-<mod-version>
+```
+
+For example, MineSplat 0.5.0 is released as `mc1.20.1-0.5.0`,
+`mc1.21.1-0.5.0`, and `mc1.21.11-0.5.0`. The tag, branch, and
+`gradle.properties` target must agree. The workflow rebuilds from the tagged
+commit, publishes the matching JAR and `.mrpack` plus `SHA256SUMS`, and never
+publishes `-sources.jar`. A manual `workflow_dispatch` validates the same path
+without creating a release. Published tags are immutable; corrections use a
+new mod version.
+
+Maintainer release procedure:
+
+1. Set `mod_version` on the target branch, push it, and wait for CI to pass.
+2. Run the `Release` workflow manually from that same branch with the intended
+   tag as `release_tag`; this is a build-only dry run.
+3. Create the annotated tag at the tested commit and push only that tag:
+
+   ```bash
+   git tag -a mc1.21.11-0.5.0 -m "MineSplat 0.5.0 for Minecraft 1.21.11"
+   git push origin mc1.21.11-0.5.0
+   ```
+
+4. Wait for the tag workflow and verify the three release assets against
+   `SHA256SUMS`. Repeat from each stable branch for its own target tag.
 
 ## License
 

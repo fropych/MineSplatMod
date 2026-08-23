@@ -1,23 +1,21 @@
 plugins {
-    id "fabric-loom" version "1.7-SNAPSHOT"
+    id "net.fabricmc.fabric-loom-remap" version "1.14.10"
     id "maven-publish"
 }
 
 version = project.mod_version
 group = project.maven_group
 
+def javaRelease = Integer.parseInt(project.java_version)
+def artifactBaseName = "${project.archives_base_name}-${project.minecraft_version}"
+def mainJarName = "${artifactBaseName}-${project.version}.jar"
+def mrpackName = "minesplat-prism-${project.minecraft_version}-${project.version}.mrpack"
+
 base {
-    archivesName = project.archives_base_name
+    archivesName = artifactBaseName
 }
 
 repositories {
-    maven {
-        name = "Masa"
-        url = "https://masa.dy.fi/maven"
-        content {
-            includeGroup "fi.dy.masa.malilib"
-        }
-    }
     exclusiveContent {
         forRepository {
             maven {
@@ -42,27 +40,26 @@ repositories {
     }
 }
 
+configurations {
+    cnbRuntimeDistribution
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
-    modImplementation "fi.dy.masa.malilib:malilib-fabric-${project.minecraft_version}:${project.malilib_version}"
-    modImplementation "maven.modrinth:bEpr0Arc:${project.litematica_version_id}"
+    modImplementation "maven.modrinth:litematica:${project.litematica_version_id}"
+    modImplementation "maven.modrinth:malilib:${project.malilib_version_id}"
     modCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
     modLocalRuntime "com.terraformersmc:modmenu:${project.modmenu_version}"
     compileOnly "curse.maven:chisels-bits-for-fabric-561059:${project.chisels_bits_file_id}"
 
     testImplementation platform("org.junit:junit-bom:5.11.0")
     testImplementation "org.junit.jupiter:junit-jupiter"
-}
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 
-configurations {
-    cnbRuntimeDistribution
-}
-
-dependencies {
     cnbRuntimeDistribution(
             "curse.maven:chisels-bits-for-fabric-561059:${project.chisels_bits_file_id}")
 }
@@ -83,10 +80,23 @@ loom {
     }
 }
 
-processResources {
-    inputs.property "version", project.version
-    filesMatching("fabric.mod.json") {
-        expand "version": project.version
+def resourceExpansion = [
+        version                 : project.version.toString(),
+        minecraft_version       : project.minecraft_version,
+        loader_version          : project.loader_version,
+        fabric_api_version      : project.fabric_api_version,
+        java_version            : project.java_version,
+        litematica_version      : project.litematica_version,
+        malilib_version         : project.malilib_version,
+        malilib_next_version    : project.malilib_next_version,
+        modmenu_version         : project.modmenu_version,
+        chisels_bits_version    : project.chisels_bits_version
+]
+
+tasks.named("processResources") {
+    inputs.properties(resourceExpansion)
+    filesMatching(["fabric.mod.json", "minesplat-target.properties"]) {
+        expand(resourceExpansion)
     }
 }
 
@@ -96,6 +106,10 @@ def tripoSplatManifest = file(
         "src/main/resources/assets/minesplat/triposplat/runtime-manifest.json")
 def tripoSplatModelManifest = file(
         "src/main/resources/assets/minesplat/triposplat/model-manifest.json")
+def targetPalette = file(
+        "src/main/resources/assets/minesplat/palette/palette-${project.minecraft_version}.json")
+def blockCategoryMap = file(
+        "src/main/resources/assets/minesplat/palette/block-categories.json")
 
 tasks.register("validateTripoSplatRuntime") {
     group = "verification"
@@ -168,62 +182,210 @@ tasks.register("validateTripoSplatModels") {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = "UTF-8"
-    options.release = 21
+    options.release = javaRelease
 }
 
 java {
     withSourcesJar()
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = JavaVersion.toVersion(javaRelease)
+    targetCompatibility = JavaVersion.toVersion(javaRelease)
 }
 
 test {
     useJUnitPlatform()
 }
 
-def mrpackName = "minesplat-prism-${project.minecraft_version}-${project.version}.mrpack"
+def mrpackExpansion = resourceExpansion + [
+        fabric_api_file_name    : project.fabric_api_file_name,
+        fabric_api_version_id   : project.fabric_api_version_id,
+        fabric_api_sha512       : project.fabric_api_sha512,
+        fabric_api_download_url : project.fabric_api_download_url,
+        fabric_api_file_size    : project.fabric_api_file_size,
+        litematica_file_name    : project.litematica_file_name,
+        litematica_version_id   : project.litematica_version_id,
+        litematica_sha512       : project.litematica_sha512,
+        litematica_download_url : project.litematica_download_url,
+        litematica_file_size    : project.litematica_file_size,
+        malilib_file_name       : project.malilib_file_name,
+        malilib_version_id      : project.malilib_version_id,
+        malilib_sha512          : project.malilib_sha512,
+        malilib_download_url    : project.malilib_download_url,
+        malilib_file_size       : project.malilib_file_size,
+        modmenu_file_name       : project.modmenu_file_name,
+        modmenu_version_id      : project.modmenu_version_id,
+        modmenu_sha512          : project.modmenu_sha512,
+        modmenu_download_url    : project.modmenu_download_url,
+        modmenu_file_size       : project.modmenu_file_size
+]
+
+def generatedMrpackDirectory = layout.buildDirectory.dir("generated/mrpack")
+
+tasks.register("generateMrpackIndex", Copy) {
+    inputs.properties(mrpackExpansion)
+    from("pack/modrinth.index.json") {
+        expand(mrpackExpansion)
+    }
+    into(generatedMrpackDirectory)
+}
 
 tasks.register("buildMrpack", Zip) {
-    dependsOn remapJar
+    dependsOn tasks.named("generateMrpackIndex")
+    dependsOn tasks.named("remapJar")
     archiveFileName = mrpackName
     destinationDirectory = layout.buildDirectory.dir("distributions")
-    from("pack/modrinth.index.json")
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+    from(generatedMrpackDirectory) {
+        include "modrinth.index.json"
+    }
     from("pack/overrides") {
         into "overrides"
+        expand(resourceExpansion)
     }
     from(tasks.named("remapJar").flatMap { it.archiveFile }) {
         into "overrides/mods"
-        rename { "minesplat-fabric-${project.minecraft_version}-${project.version}.jar" }
+        rename { mainJarName }
+    }
+}
+
+tasks.register("validateTargetMetadata") {
+    group = "verification"
+    description = "Verifies expanded Fabric and target metadata for this version line."
+    dependsOn tasks.named("processResources")
+    inputs.dir(layout.buildDirectory.dir("resources/main"))
+    doLast {
+        def resources = layout.buildDirectory.dir("resources/main").get().asFile
+        def fabricMetadata = new groovy.json.JsonSlurper().parse(
+                new File(resources, "fabric.mod.json"))
+        assert fabricMetadata.version == project.version.toString()
+        assert fabricMetadata.depends.minecraft == project.minecraft_version
+        assert fabricMetadata.depends.fabricloader == ">=${project.loader_version}"
+        assert fabricMetadata.depends.java == ">=${project.java_version}"
+        assert fabricMetadata.depends.litematica == project.litematica_version
+        assert fabricMetadata.suggests.chiselsandbits == project.chisels_bits_version
+
+        def targetMetadata = new Properties()
+        new File(resources, "minesplat-target.properties").withInputStream {
+            targetMetadata.load(it)
+        }
+        assert targetMetadata.stringPropertyNames() ==
+                ["minecraftVersion", "chiselsAndBitsVersion"] as Set
+        assert targetMetadata.getProperty("minecraftVersion") == project.minecraft_version
+        assert targetMetadata.getProperty("chiselsAndBitsVersion") ==
+                project.chisels_bits_version
+    }
+}
+
+tasks.register("validateTargetPalette") {
+    group = "verification"
+    description = "Verifies the version-specific palette and reusable category mapping."
+    inputs.file(targetPalette)
+    inputs.file(blockCategoryMap)
+    doLast {
+        assert targetPalette.isFile():
+                "Missing palette for Minecraft ${project.minecraft_version}: ${targetPalette}"
+        def palette = new groovy.json.JsonSlurper().parse(targetPalette)
+        def categoryMap = new groovy.json.JsonSlurper().parse(blockCategoryMap)
+        assert palette.schemaVersion == 1
+        assert palette.minecraftVersion == project.minecraft_version
+        assert palette.categoryMap == blockCategoryMap.name
+        assert palette.source.clientJarSha256 ==~ /[0-9a-f]{64}/
+        assert palette.entries instanceof List && !palette.entries.empty
+        assert categoryMap.schemaVersion == 1
+        assert categoryMap.categoryDefinitions.keySet() ==
+                ["all", "survival", "solid_colors"] as Set
+
+        def seenStates = new HashSet<String>()
+        def paletteBlocks = new HashSet<String>()
+        palette.entries.each { entry ->
+            assert entry.block ==~ /[a-z0-9_.-]+:[a-z0-9_.\/-]+/
+            def stateKey = entry.stateKey ?: ""
+            assert stateKey instanceof String
+            assert entry.priority instanceof Number
+            assert entry.faces instanceof Map && !entry.faces.isEmpty()
+            assert entry.profiles instanceof List && !entry.profiles.isEmpty()
+            assert entry.profiles[0] == "all"
+            assert categoryMap.blockCategories[entry.block] == entry.profiles
+            assert seenStates.add("${entry.block}\u0000${stateKey}"):
+                    "Duplicate palette state ${entry.block}[${stateKey}]"
+            paletteBlocks.add(entry.block)
+        }
+        assert palette.summary.emittedFullCubeStates == palette.entries.size()
+        assert palette.summary.emittedUniqueBlocks == paletteBlocks.size()
     }
 }
 
 tasks.register("validateMrpack") {
-    dependsOn tasks.buildMrpack
+    group = "verification"
+    description = "Verifies the generated Modrinth pack and embedded MineSplat JAR."
+    dependsOn tasks.named("buildMrpack")
     doLast {
-        def archive = tasks.buildMrpack.archiveFile.get().asFile
+        def archive = tasks.named("buildMrpack").get().archiveFile.get().asFile
         def tree = zipTree(archive)
         def indexFile = tree.matching { include "modrinth.index.json" }.singleFile
         def index = new groovy.json.JsonSlurper().parse(indexFile)
         assert index.formatVersion == 1
         assert index.game == "minecraft"
+        assert index.versionId == project.version.toString()
         assert index.dependencies.minecraft == project.minecraft_version
         assert index.dependencies."fabric-loader" == project.loader_version
         assert index.files.size() == 4
-        assert index.files.every { it.hashes.sha512 ==~ /[0-9a-f]{128}/ }
+        assert index.files*.path as Set == [
+                "mods/${project.fabric_api_file_name}",
+                "mods/${project.litematica_file_name}",
+                "mods/${project.malilib_file_name}",
+                "mods/${project.modmenu_file_name}"
+        ] as Set
+        assert index.files.every {
+            it.hashes.sha512 ==~ /[0-9a-f]{128}/ &&
+                    it.fileSize instanceof Number && it.fileSize > 0 &&
+                    it.downloads.size() == 1 &&
+                    it.downloads[0].startsWith("https://cdn.modrinth.com/")
+        }
         assert tree.matching {
-            include "overrides/mods/minesplat-fabric-${project.minecraft_version}-${project.version}.jar"
+            include "overrides/mods/${mainJarName}"
+        }.files.size() == 1
+        assert tree.matching {
+            include "overrides/mods/*-sources.jar"
+        }.files.empty
+    }
+}
+
+tasks.register("verifyReleaseArtifacts") {
+    group = "verification"
+    description = "Checks the exact main JAR and mrpack files consumed by release automation."
+    dependsOn tasks.named("remapJar")
+    dependsOn tasks.named("validateMrpack")
+    dependsOn tasks.named("validateTargetMetadata")
+    doLast {
+        def expectedJar = layout.buildDirectory.file("libs/${mainJarName}").get().asFile
+        def expectedMrpack = layout.buildDirectory.file(
+                "distributions/${mrpackName}").get().asFile
+        assert expectedJar.isFile(): "Missing release JAR: ${expectedJar}"
+        assert expectedMrpack.isFile(): "Missing release mrpack: ${expectedMrpack}"
+        assert !expectedJar.name.endsWith("-sources.jar")
+
+        def jarTree = zipTree(expectedJar)
+        def fabricMetadata = new groovy.json.JsonSlurper().parse(
+                jarTree.matching { include "fabric.mod.json" }.singleFile)
+        assert fabricMetadata.version == project.version.toString()
+        assert fabricMetadata.depends.minecraft == project.minecraft_version
+        assert jarTree.matching {
+            include "minesplat-target.properties"
         }.files.size() == 1
     }
 }
 
-tasks.check {
-    dependsOn tasks.validateMrpack
-    dependsOn tasks.validateTripoSplatRuntime
-    dependsOn tasks.validateTripoSplatModels
+tasks.named("check") {
+    dependsOn tasks.named("validateMrpack")
+    dependsOn tasks.named("validateTargetMetadata")
+    dependsOn tasks.named("validateTargetPalette")
+    dependsOn tasks.named("validateTripoSplatRuntime")
+    dependsOn tasks.named("validateTripoSplatModels")
 }
 
-tasks.build {
-    dependsOn tasks.buildMrpack
+tasks.named("build") {
+    dependsOn tasks.named("verifyReleaseArtifacts")
 }
 
 tasks.register("prepareCnbRuntime", Copy) {
@@ -232,11 +394,11 @@ tasks.register("prepareCnbRuntime", Copy) {
 }
 
 tasks.named("runCnb") {
-    dependsOn tasks.prepareCnbRuntime
+    dependsOn tasks.named("prepareCnbRuntime")
 }
 
 tasks.register("runClientCnb") {
     group = "fabric"
     description = "Runs the development client with optional Chisels & Bits support."
-    dependsOn tasks.runCnb
+    dependsOn tasks.named("runCnb")
 }

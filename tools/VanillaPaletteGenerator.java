@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -44,6 +45,8 @@ public final class VanillaPaletteGenerator implements AutoCloseable {
     private static final List<String> DIRECTIONS = List.of(
             "down", "up", "north", "south", "west", "east");
     private static final int SAMPLE_SIZE = 16;
+    private static final Pattern MINECRAFT_VERSION = Pattern.compile(
+            "[0-9]+(?:\\.[0-9]+){2}");
     private static final double PLAINS_TEMPERATURE = 0.8;
     private static final double PLAINS_DOWNFALL = 0.4;
     private static final Set<String> FALLING_BLOCKS = Set.of(
@@ -73,6 +76,7 @@ public final class VanillaPaletteGenerator implements AutoCloseable {
             "minecraft:damaged_anvil",
             "minecraft:dragon_egg");
 
+    private final String minecraftVersion;
     private final Path clientJar;
     private final ZipFile archive;
     private final Map<String, ResolvedModel> modelCache = new HashMap<>();
@@ -90,9 +94,15 @@ public final class VanillaPaletteGenerator implements AutoCloseable {
     private int missingResourceStateCount;
     private int unresolvedTintStateCount;
 
-    private VanillaPaletteGenerator(Path clientJar) throws IOException {
+    private VanillaPaletteGenerator(String minecraftVersion, Path clientJar) throws IOException {
+        if (!MINECRAFT_VERSION.matcher(minecraftVersion).matches()) {
+            throw new IllegalArgumentException(
+                    "Invalid target Minecraft version: " + minecraftVersion);
+        }
+        this.minecraftVersion = minecraftVersion;
         this.clientJar = clientJar.toAbsolutePath().normalize();
         this.archive = new ZipFile(this.clientJar.toFile());
+        validateClientVersion();
         plainsGrassTint = colormapColor(
                 "assets/minecraft/textures/colormap/grass.png");
         plainsFoliageTint = colormapColor(
@@ -100,18 +110,21 @@ public final class VanillaPaletteGenerator implements AutoCloseable {
     }
 
     public static void main(String[] arguments) throws Exception {
-        if (arguments.length < 2 || arguments.length > 3) {
+        if (arguments.length < 3 || arguments.length > 4) {
             System.err.println(
                     "Usage: java ... tools/VanillaPaletteGenerator.java "
-                            + "<minecraft-client.jar> <output.json> [block-names.txt]");
+                            + "<minecraft-version> <minecraft-client.jar> <output.json> "
+                            + "[block-names.txt]");
             System.exit(2);
         }
-        Path clientJar = Path.of(arguments[0]);
-        Path output = Path.of(arguments[1]).toAbsolutePath().normalize();
+        String minecraftVersion = arguments[0];
+        Path clientJar = Path.of(arguments[1]);
+        Path output = Path.of(arguments[2]).toAbsolutePath().normalize();
         if (!Files.isRegularFile(clientJar)) {
             throw new IllegalArgumentException("Minecraft client JAR not found: " + clientJar);
         }
-        try (VanillaPaletteGenerator generator = new VanillaPaletteGenerator(clientJar)) {
+        try (VanillaPaletteGenerator generator = new VanillaPaletteGenerator(
+                minecraftVersion, clientJar)) {
             JsonObject palette = generator.generate();
             Path parent = output.getParent();
             if (parent != null) {
@@ -120,8 +133,8 @@ public final class VanillaPaletteGenerator implements AutoCloseable {
             try (var writer = Files.newBufferedWriter(output, StandardCharsets.UTF_8)) {
                 GSON.toJson(palette, writer);
             }
-            if (arguments.length == 3) {
-                Path blockNames = Path.of(arguments[2]).toAbsolutePath().normalize();
+            if (arguments.length == 4) {
+                Path blockNames = Path.of(arguments[3]).toAbsolutePath().normalize();
                 generator.writeBlockNames(palette, blockNames);
             }
             generator.printSummary(output);
@@ -189,7 +202,7 @@ public final class VanillaPaletteGenerator implements AutoCloseable {
                 .count();
         JsonObject root = new JsonObject();
         root.addProperty("schemaVersion", 1);
-        root.addProperty("minecraftVersion", "1.21.1");
+        root.addProperty("minecraftVersion", minecraftVersion);
         root.addProperty(
                 "colorSpace",
                 "linear-light alpha-weighted face averages encoded as sRGB8; "
@@ -568,6 +581,20 @@ public final class VanillaPaletteGenerator implements AutoCloseable {
         }
     }
 
+    private void validateClientVersion() throws IOException {
+        JsonObject version = readJson("version.json");
+        if (!version.has("id") || !version.get("id").isJsonPrimitive()) {
+            throw new IllegalArgumentException(
+                    "Minecraft client JAR has no version.json id: " + clientJar);
+        }
+        String actualVersion = version.get("id").getAsString();
+        if (!minecraftVersion.equals(actualVersion)) {
+            throw new IllegalArgumentException(
+                    "Minecraft client JAR targets " + actualVersion
+                            + " but requested target is " + minecraftVersion);
+        }
+    }
+
     private static Map<String, String> properties(String stateKey) {
         Map<String, String> result = new TreeMap<>();
         if (stateKey == null || stateKey.isBlank()) {
@@ -660,6 +687,7 @@ public final class VanillaPaletteGenerator implements AutoCloseable {
     }
 
     private void printSummary(Path output) {
+        System.out.println("Minecraft version: " + minecraftVersion);
         System.out.println("Minecraft client: " + clientJar);
         System.out.println("Blockstates: " + blockstateCount);
         System.out.println("Variant states: " + variantStateCount);

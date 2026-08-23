@@ -21,18 +21,18 @@ class CnbHiddenLightingTest {
         List<CnbHiddenLighting.Section> sections = CnbHiddenLighting.plan(packed);
 
         assertEquals(2, sections.size());
-        assertEquals(new BlockPos(2, 2, 2), sections.get(0).candidates().getFirst());
-        assertEquals(new BlockPos(5, 2, 2), sections.get(1).candidates().getFirst());
+        assertEquals(new BlockPos(2, 2, 2), sections.get(0).candidates().get(0));
+        assertEquals(new BlockPos(5, 2, 2), sections.get(1).candidates().get(0));
     }
 
     @Test
     void searchesNearestFreePositionWhenSectionCenterIsOccupied() {
         CnbPackedModel packed = model(5, 5, 5, host(2, 2, 2));
 
-        CnbHiddenLighting.Section section = CnbHiddenLighting.plan(packed).getFirst();
+        CnbHiddenLighting.Section section = CnbHiddenLighting.plan(packed).get(0);
 
         assertFalse(section.candidates().contains(new BlockPos(2, 2, 2)));
-        assertEquals(1, manhattan(section.candidates().getFirst(), new BlockPos(2, 2, 2)));
+        assertEquals(1, manhattan(section.candidates().get(0), new BlockPos(2, 2, 2)));
     }
 
     @Test
@@ -40,12 +40,12 @@ class CnbHiddenLightingTest {
         CnbPackedModel packed = model(1, 1, 1, host(0, 0, 0));
 
         List<BlockPos> candidates = CnbHiddenLighting.plan(packed)
-                .getFirst()
+                .get(0)
                 .candidates();
 
         assertEquals(124, candidates.size());
         assertTrue(candidates.stream().noneMatch(new BlockPos(0, 0, 0)::equals));
-        assertEquals(1, manhattan(candidates.getFirst(), new BlockPos(0, 0, 0)));
+        assertEquals(1, manhattan(candidates.get(0), new BlockPos(0, 0, 0)));
     }
 
     private static CnbPackedModel model(
