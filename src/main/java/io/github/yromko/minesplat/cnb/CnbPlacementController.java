@@ -384,11 +384,13 @@ public final class CnbPlacementController implements AutoCloseable {
             return;
         }
         BlockPos requestedOrigin = origin.toImmutable();
+        CnbPackedModel requestedPacked = packed;
         closePreviewBuffer();
         update(copy(CnbPlacementState.PLACING, "Placing miniature", false));
         integration.place(
                 client,
                 blueprint,
+                requestedPacked,
                 quarterTurns,
                 requestedOrigin,
                 progress -> update(new CnbPlacementSnapshot(
@@ -396,7 +398,8 @@ public final class CnbPlacementController implements AutoCloseable {
                         progress.message(),
                         blueprint.name(),
                         quarterTurns * 90,
-                        packed.width(), packed.height(), packed.depth(),
+                        requestedPacked.width(), requestedPacked.height(),
+                        requestedPacked.depth(),
                         progress.placedHostBlocks(), progress.totalHostBlocks(),
                         requestedOrigin,
                         true)))
@@ -409,7 +412,8 @@ public final class CnbPlacementController implements AutoCloseable {
                                 "Miniature placed",
                                 blueprint.name(),
                                 quarterTurns * 90,
-                                packed.width(), packed.height(), packed.depth(),
+                                requestedPacked.width(), requestedPacked.height(),
+                                requestedPacked.depth(),
                                 result.hostBlocks(), result.hostBlocks(),
                                 requestedOrigin,
                                 true));

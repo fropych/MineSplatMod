@@ -41,6 +41,7 @@ public final class UnavailableCnbIntegration implements CnbIntegration {
     public CompletableFuture<CnbPlacementResult> place(
             MinecraftClient client,
             CnbBlueprint blueprint,
+            CnbPackedModel packed,
             int quarterTurns,
             BlockPos origin,
             Consumer<CnbPlacementProgress> progress

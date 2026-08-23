@@ -39,6 +39,14 @@ public record CnbPackedModel(
             return paletteIndices.clone();
         }
 
+        public int localIndexAt(int index) {
+            return localIndices[index];
+        }
+
+        public int paletteIndexAt(int index) {
+            return paletteIndices[index];
+        }
+
         public int bitCount() {
             return localIndices.length;
         }

@@ -5,7 +5,6 @@ import io.github.yromko.minesplat.cnb.CnbBlueprint;
 import io.github.yromko.minesplat.cnb.CnbHiddenLighting;
 import io.github.yromko.minesplat.cnb.CnbIntegration;
 import io.github.yromko.minesplat.cnb.CnbPackedModel;
-import io.github.yromko.minesplat.cnb.CnbPacking;
 import io.github.yromko.minesplat.cnb.CnbPlacementProgress;
 import io.github.yromko.minesplat.cnb.CnbPlacementResult;
 import io.github.yromko.minesplat.palette.PaletteEntry;
@@ -15,6 +14,7 @@ import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.LightBlock;
+import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -22,6 +22,9 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -45,24 +48,74 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
     private static final String API_CLASS = "mod.chiselsandbits.api.IChiselsAndBitsAPI";
     private static final String BLOCK_INFORMATION_CLASS =
             "mod.chiselsandbits.api.blockinformation.BlockInformation";
+    private static final String STATE_ENTRY_SIZE_CLASS =
+            "mod.chiselsandbits.api.multistate.StateEntrySize";
+    private static final String ELIGIBILITY_MANAGER_CLASS =
+            "mod.chiselsandbits.api.chiseling.eligibility.IEligibilityManager";
+    private static final String MUTATOR_FACTORY_CLASS =
+            "mod.chiselsandbits.api.multistate.mutator.IMutatorFactory";
+    private static final String CHANGE_TRACKER_MANAGER_CLASS =
+            "mod.chiselsandbits.api.change.IChangeTrackerManager";
+    private static final String BATCHED_AREA_MUTATOR_CLASS =
+            "mod.chiselsandbits.api.multistate.mutator.batched.IBatchedAreaMutator";
+    private static final String MULTI_STATE_BLOCK_ENTITY_CLASS =
+            "mod.chiselsandbits.api.block.entity.IMultiStateBlockEntity";
     private static final String BATCH_MUTATION_CLASS =
             "mod.chiselsandbits.api.util.IBatchMutation";
 
-    private final Object api;
+    private final Object eligibilityManager;
+    private final Object mutatorFactory;
+    private final Object changeTrackerManager;
+    private final Class<?> multiStateBlockEntityClass;
     private final Constructor<?> blockInformationConstructor;
+    private final Method canBeChiseledMethod;
+    private final Method mutatorInMethod;
+    private final Method getChangeTrackerMethod;
+    private final Method batchMethod;
     private final Method closeBatchMethod;
+    private final MethodHandle setInAreaTargetHandle;
+    private final int bitsPerBlockSide;
+    private final CnbBitCenters bitCenters;
     private volatile PlacementJob job;
 
     public ChiselsAndBitsIntegration() {
         try {
             Class<?> apiType = Class.forName(API_CLASS);
-            api = apiType.getMethod("getInstance").invoke(null);
+            Object api = apiType.getMethod("getInstance").invoke(null);
             if (api == null) {
                 throw new IllegalStateException("Chisels & Bits API is unavailable");
             }
             Class<?> blockInformation = Class.forName(BLOCK_INFORMATION_CLASS);
             blockInformationConstructor = findBlockInformationConstructor(blockInformation);
+            Object size = invokePublic(apiType.getMethod("getStateEntrySize"), api);
+            bitsPerBlockSide = (int) invokePublic(
+                    Class.forName(STATE_ENTRY_SIZE_CLASS)
+                            .getMethod("getBitsPerBlockSide"),
+                    size);
+            bitCenters = new CnbBitCenters(bitsPerBlockSide);
+
+            eligibilityManager = invokePublic(
+                    apiType.getMethod("getEligibilityManager"), api);
+            mutatorFactory = invokePublic(apiType.getMethod("getMutatorFactory"), api);
+            changeTrackerManager = invokePublic(
+                    apiType.getMethod("getChangeTrackerManager"), api);
+
+            canBeChiseledMethod = Class.forName(ELIGIBILITY_MANAGER_CLASS)
+                    .getMethod("canBeChiseled", blockInformation);
+            mutatorInMethod = findPublicMethod(
+                    Class.forName(MUTATOR_FACTORY_CLASS), "in", 2);
+            getChangeTrackerMethod = findPublicMethod(
+                    Class.forName(CHANGE_TRACKER_MANAGER_CLASS), "getChangeTracker", 1);
+            batchMethod = findPublicMethod(
+                    Class.forName(BATCHED_AREA_MUTATOR_CLASS), "batch", 1);
             closeBatchMethod = Class.forName(BATCH_MUTATION_CLASS).getMethod("close");
+            multiStateBlockEntityClass = Class.forName(MULTI_STATE_BLOCK_ENTITY_CLASS);
+            Method setInAreaTargetMethod = findPublicMethod(
+                    multiStateBlockEntityClass, "setInAreaTarget", 2);
+            setInAreaTargetHandle = MethodHandles.publicLookup()
+                    .unreflect(setInAreaTargetMethod)
+                    .asType(MethodType.methodType(
+                            void.class, Object.class, Object.class, Vec3d.class));
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException(
                     "Cannot connect to the Chisels & Bits public API", unwrap(exception));
@@ -83,8 +136,7 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
 
     @Override
     public int bitsPerBlockSide() {
-        Object size = invoke(api, "getStateEntrySize");
-        return (int) invoke(size, "getBitsPerBlockSide");
+        return bitsPerBlockSide;
     }
 
     @Override
@@ -94,12 +146,12 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
         CompletableFuture<List<PaletteEntry>> result = new CompletableFuture<>();
         MinecraftClient.getInstance().execute(() -> {
             try {
-                Object eligibility = invoke(api, "getEligibilityManager");
                 List<PaletteEntry> accepted = new ArrayList<>();
                 for (PaletteEntry candidate : candidates) {
                     Object information = information(
                             BlockStateStrings.resolve(candidate.stateString()));
-                    if ((boolean) invoke(eligibility, "canBeChiseled", information)) {
+                    if ((boolean) invokePublic(
+                            canBeChiseledMethod, eligibilityManager, information)) {
                         accepted.add(candidate);
                     }
                 }
@@ -119,6 +171,7 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
     public CompletableFuture<CnbPlacementResult> place(
             MinecraftClient client,
             CnbBlueprint blueprint,
+            CnbPackedModel packed,
             int quarterTurns,
             BlockPos origin,
             Consumer<CnbPlacementProgress> progress
@@ -132,8 +185,12 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
             return CompletableFuture.failedFuture(new IllegalStateException(
                     "Chisels & Bits placement requires Creative mode"));
         }
-        CnbPackedModel packed = CnbPacking.pack(
-                blueprint, bitsPerBlockSide(), quarterTurns);
+        if (packed == null
+                || packed.bitsPerBlockSide() != bitsPerBlockSide
+                || packed.bitCount() != blueprint.voxelCount()) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException(
+                    "Prepared Chisels & Bits model does not match the blueprint"));
+        }
         CompletableFuture<CnbPlacementResult> result = new CompletableFuture<>();
         MinecraftServer server = client.getServer();
         server.execute(() -> {
@@ -155,8 +212,10 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
                 }
                 List<Object> palette = resolvePalette(blueprint, quarterTurns);
                 preflight(world, packed, origin);
+                Object tracker = invokePublic(
+                        getChangeTrackerMethod, changeTrackerManager, player);
                 job = new PlacementJob(
-                        server, world, player, blueprint, packed, palette,
+                        server, world, blueprint, packed, palette, tracker, bitCenters,
                         origin.toImmutable(), progress, result);
                 progress.accept(new CnbPlacementProgress(
                         0, packed.hostBlocks().size(), "Placement started"));
@@ -176,12 +235,12 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
     }
 
     private List<Object> resolvePalette(CnbBlueprint blueprint, int quarterTurns) {
-        Object eligibility = invoke(api, "getEligibilityManager");
         List<Object> result = new ArrayList<>(blueprint.palette().size());
         for (var entry : blueprint.palette()) {
             Object information = information(BlockStateStrings.resolveRotated(
                     entry.blockState(), quarterTurns));
-            if (!(boolean) invoke(eligibility, "canBeChiseled", information)) {
+            if (!(boolean) invokePublic(
+                    canBeChiseledMethod, eligibilityManager, information)) {
                 throw new IllegalArgumentException(
                         "Block is not supported by Chisels & Bits: " + entry.blockState());
             }
@@ -238,6 +297,10 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
         try {
             while (active.nextHost < active.packed.hostBlocks().size()
                     && hosts < MAX_HOST_BLOCKS_PER_TICK) {
+                if (active.cancelRequested) {
+                    rollback(active, new IllegalStateException("Placement cancelled"));
+                    return;
+                }
                 CnbPackedModel.HostBlock host =
                         active.packed.hostBlocks().get(active.nextHost);
                 if (hosts > 0 && bits + host.bitCount() > MAX_BITS_PER_TICK) {
@@ -247,6 +310,10 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
                 active.nextHost++;
                 hosts++;
                 bits += host.bitCount();
+            }
+            if (active.cancelRequested) {
+                rollback(active, new IllegalStateException("Placement cancelled"));
+                return;
             }
             active.progress.accept(new CnbPlacementProgress(
                     active.nextHost,
@@ -258,12 +325,20 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
                 int sections = 0;
                 while (active.nextLightSection < active.lightSections.size()
                         && sections < MAX_LIGHT_SECTIONS_PER_TICK) {
+                    if (active.cancelRequested) {
+                        rollback(active, new IllegalStateException("Placement cancelled"));
+                        return;
+                    }
                     placeHiddenLight(
                             active,
                             active.lightSections.get(active.nextLightSection));
                     active.nextLightSection++;
                     sections++;
                 }
+            }
+            if (active.cancelRequested) {
+                rollback(active, new IllegalStateException("Placement cancelled"));
+                return;
             }
             if (active.nextHost >= active.packed.hostBlocks().size()
                     && active.nextLightSection >= active.lightSections.size()) {
@@ -301,31 +376,20 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
         BlockPos target = active.origin.add(host.x(), host.y(), host.z());
         validateEmptyTarget(active.world, target);
         active.touched.add(target.toImmutable());
-        Object mutator = invoke(
-                invoke(api, "getMutatorFactory"), "in", active.world, target);
-        Object tracker = invoke(
-                invoke(api, "getChangeTrackerManager"),
-                "getChangeTracker",
-                active.player);
-        Object batch = invoke(mutator, "batch", tracker);
-        int side = active.packed.bitsPerBlockSide();
-        int[] localIndices = host.localIndices();
-        int[] paletteIndices = host.paletteIndices();
+        Object mutator = invokePublic(
+                mutatorInMethod, mutatorFactory, active.world, target);
+        Object batch = invokePublic(batchMethod, mutator, active.tracker);
         try {
-            for (int index = 0; index < localIndices.length; index++) {
-                int local = localIndices[index];
-                int x = local % side;
-                int y = (local / side) % side;
-                int z = local / (side * side);
-                invoke(
-                        mutator,
-                        "setInBlockTarget",
-                        active.palette.get(paletteIndices[index]),
-                        BlockPos.ORIGIN,
-                        new Vec3d(
-                                (x + 0.5) / side,
-                                (y + 0.5) / side,
-                                (z + 0.5) / side));
+            BlockEntity blockEntity = active.world.getBlockEntity(target);
+            if (!multiStateBlockEntityClass.isInstance(blockEntity)) {
+                throw new IllegalStateException(
+                        "Chisels & Bits did not create a multi-state block entity");
+            }
+            for (int index = 0; index < host.bitCount(); index++) {
+                setInAreaTarget(
+                        blockEntity,
+                        active.palette.get(host.paletteIndexAt(index)),
+                        active.bitCenters.at(host.localIndexAt(index)));
             }
         } finally {
             invokePublic(closeBatchMethod, batch);
@@ -362,17 +426,22 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
                 "Chisels & Bits BlockInformation constructor was not found");
     }
 
-    static Object invoke(Object target, String name, Object... arguments) {
+    private void setInAreaTarget(
+            Object blockEntity,
+            Object blockInformation,
+            Vec3d target
+    ) {
         try {
-            Method method = findMethod(target.getClass(), name, arguments);
-            return invokePublic(method, target, arguments);
-        } catch (ReflectiveOperationException exception) {
-            Throwable cause = unwrap(exception);
-            if (cause instanceof RuntimeException runtime) {
+            setInAreaTargetHandle.invokeExact(blockEntity, blockInformation, target);
+        } catch (Throwable throwable) {
+            if (throwable instanceof RuntimeException runtime) {
                 throw runtime;
             }
+            if (throwable instanceof Error error) {
+                throw error;
+            }
             throw new IllegalStateException(
-                    "Chisels & Bits API call failed: " + name, cause);
+                    "Chisels & Bits API call failed: setInAreaTarget", throwable);
         }
     }
 
@@ -393,60 +462,27 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
         }
     }
 
-    private static Method findMethod(
+    private static Method findPublicMethod(
             Class<?> type,
             String name,
-            Object[] arguments
+            int parameterCount
     ) throws NoSuchMethodException {
+        Method result = null;
         for (Method method : type.getMethods()) {
-            Class<?>[] parameters = method.getParameterTypes();
-            if (!method.getName().equals(name) || parameters.length != arguments.length) {
+            if (!method.getName().equals(name)
+                    || method.getParameterCount() != parameterCount) {
                 continue;
             }
-            boolean compatible = true;
-            for (int index = 0; index < parameters.length; index++) {
-                if (arguments[index] != null
-                        && !wrap(parameters[index]).isInstance(arguments[index])) {
-                    compatible = false;
-                    break;
-                }
+            if (result != null) {
+                throw new NoSuchMethodException(
+                        "Ambiguous public API method " + type.getName() + "." + name);
             }
-            if (compatible) {
-                return method;
-            }
+            result = method;
         }
-        throw new NoSuchMethodException(type.getName() + "." + name);
-    }
-
-    private static Class<?> wrap(Class<?> type) {
-        if (!type.isPrimitive()) {
-            return type;
+        if (result == null) {
+            throw new NoSuchMethodException(type.getName() + "." + name);
         }
-        if (type == boolean.class) {
-            return Boolean.class;
-        }
-        if (type == int.class) {
-            return Integer.class;
-        }
-        if (type == long.class) {
-            return Long.class;
-        }
-        if (type == double.class) {
-            return Double.class;
-        }
-        if (type == float.class) {
-            return Float.class;
-        }
-        if (type == byte.class) {
-            return Byte.class;
-        }
-        if (type == short.class) {
-            return Short.class;
-        }
-        if (type == char.class) {
-            return Character.class;
-        }
-        return type;
+        return result;
     }
 
     private static Throwable unwrap(Throwable throwable) {
@@ -461,10 +497,11 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
     private static final class PlacementJob {
         private final MinecraftServer server;
         private final ServerWorld world;
-        private final ServerPlayerEntity player;
         private final CnbBlueprint blueprint;
         private final CnbPackedModel packed;
         private final List<Object> palette;
+        private final Object tracker;
+        private final CnbBitCenters bitCenters;
         private final BlockPos origin;
         private final Consumer<CnbPlacementProgress> progress;
         private final CompletableFuture<CnbPlacementResult> result;
@@ -477,20 +514,22 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
         private PlacementJob(
                 MinecraftServer server,
                 ServerWorld world,
-                ServerPlayerEntity player,
                 CnbBlueprint blueprint,
                 CnbPackedModel packed,
                 List<Object> palette,
+                Object tracker,
+                CnbBitCenters bitCenters,
                 BlockPos origin,
                 Consumer<CnbPlacementProgress> progress,
                 CompletableFuture<CnbPlacementResult> result
         ) {
             this.server = server;
             this.world = world;
-            this.player = player;
             this.blueprint = blueprint;
             this.packed = packed;
             this.palette = palette;
+            this.tracker = tracker;
+            this.bitCenters = bitCenters;
             this.origin = origin;
             this.progress = progress;
             this.result = result;

@@ -12,6 +12,7 @@ import io.github.yromko.minesplat.cnb.CnbBlueprint;
 import io.github.yromko.minesplat.cnb.CnbBlueprintExporter;
 import io.github.yromko.minesplat.cnb.CnbBlueprintStore;
 import io.github.yromko.minesplat.cnb.CnbIntegration;
+import io.github.yromko.minesplat.cnb.CnbPackedModel;
 import io.github.yromko.minesplat.cnb.CnbPlacementProgress;
 import io.github.yromko.minesplat.cnb.CnbPlacementResult;
 import io.github.yromko.minesplat.palette.BlockPalette;
@@ -316,6 +317,7 @@ class MineSplatControllerTest {
         public CompletableFuture<CnbPlacementResult> place(
                 MinecraftClient client,
                 CnbBlueprint blueprint,
+                CnbPackedModel packed,
                 int quarterTurns,
                 BlockPos origin,
                 java.util.function.Consumer<CnbPlacementProgress> progress
