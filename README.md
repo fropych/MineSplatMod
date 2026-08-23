@@ -105,7 +105,9 @@ arrow and Page Up/Down keys, and confirmed with right-click.
 
 One TSVOX voxel maps to one C&B bit. World mutation runs on the integrated
 server thread in bounded batches and rolls back MineSplat-created host blocks
-if placement fails.
+if placement fails. To avoid coarse C&B lighting shadows, placement also adds
+one invisible level-15 light block near the center of every occupied 5×5×5
+host-block section. Existing world blocks are never replaced.
 
 ## License
 

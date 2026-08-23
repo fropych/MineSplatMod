@@ -96,7 +96,10 @@ Litematica работает без него.
 Все клавиши, кроме подтверждения мышью, можно изменить в настройках Controls.
 Размещение блокируется, если миниатюра пересекается с любым существующим блоком.
 MineSplat ничего не перезаписывает и откатывает созданные им C&B-блоки при
-ошибке.
+ошибке. После размещения мод также добавляет невидимое освещение уровня 15:
+по одному источнику рядом с центром каждой занятой моделью секции 5×5×5
+обычных блоков. Если центр занят, выбирается ближайший свободный воздух;
+существующие блоки мира не заменяются.
 
 Blueprint-файлы сохраняются в
 `<папка инстанса>/minecraft/minesplat/blueprints/` и доступны через кнопку
@@ -212,7 +215,10 @@ the standard 16-bit grid. `1024³` matches the TripoSplat API maximum, is
 exceptionally heavy, and benefits from at least 12–16 GiB allocated to the
 instance. Placement requires every occupied host block to be air and is
 supported only in Creative singleplayer in MineSplat 0.4.0. This output path
-does not create or place a Litematica schematic.
+does not create or place a Litematica schematic. MineSplat also places one
+invisible level-15 light near the center of every occupied 5×5×5 host-block
+section. If the center is occupied, the nearest air position is used; existing
+world blocks are never replaced.
 
 ### Manual install
 

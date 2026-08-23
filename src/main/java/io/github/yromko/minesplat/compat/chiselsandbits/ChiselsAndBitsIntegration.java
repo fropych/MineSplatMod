@@ -2,6 +2,7 @@ package io.github.yromko.minesplat.compat.chiselsandbits;
 
 import io.github.yromko.minesplat.cnb.BlockStateStrings;
 import io.github.yromko.minesplat.cnb.CnbBlueprint;
+import io.github.yromko.minesplat.cnb.CnbHiddenLighting;
 import io.github.yromko.minesplat.cnb.CnbIntegration;
 import io.github.yromko.minesplat.cnb.CnbPackedModel;
 import io.github.yromko.minesplat.cnb.CnbPacking;
@@ -13,6 +14,7 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.block.LightBlock;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -39,6 +41,7 @@ import java.util.function.Consumer;
 public final class ChiselsAndBitsIntegration implements CnbIntegration {
     private static final int MAX_HOST_BLOCKS_PER_TICK = 8;
     private static final int MAX_BITS_PER_TICK = 8192;
+    private static final int MAX_LIGHT_SECTIONS_PER_TICK = 32;
     private static final String API_CLASS = "mod.chiselsandbits.api.IChiselsAndBitsAPI";
     private static final String BLOCK_INFORMATION_CLASS =
             "mod.chiselsandbits.api.blockinformation.BlockInformation";
@@ -248,8 +251,22 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
             active.progress.accept(new CnbPlacementProgress(
                     active.nextHost,
                     active.packed.hostBlocks().size(),
-                    "Placing miniature"));
+                    active.nextHost < active.packed.hostBlocks().size()
+                            ? "Placing miniature"
+                            : "Adding hidden lighting"));
             if (active.nextHost >= active.packed.hostBlocks().size()) {
+                int sections = 0;
+                while (active.nextLightSection < active.lightSections.size()
+                        && sections < MAX_LIGHT_SECTIONS_PER_TICK) {
+                    placeHiddenLight(
+                            active,
+                            active.lightSections.get(active.nextLightSection));
+                    active.nextLightSection++;
+                    sections++;
+                }
+            }
+            if (active.nextHost >= active.packed.hostBlocks().size()
+                    && active.nextLightSection >= active.lightSections.size()) {
                 job = null;
                 active.result.complete(new CnbPlacementResult(
                         active.packed.hostBlocks().size(),
@@ -257,6 +274,26 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
             }
         } catch (Throwable throwable) {
             rollback(active, throwable);
+        }
+    }
+
+    private static void placeHiddenLight(
+            PlacementJob active,
+            CnbHiddenLighting.Section section
+    ) {
+        for (BlockPos relative : section.candidates()) {
+            BlockPos target = active.origin.add(relative);
+            if (active.world.isOutOfHeightLimit(target)
+                    || !active.world.getWorldBorder().contains(target)
+                    || !active.world.isChunkLoaded(target)
+                    || !active.world.getBlockState(target).isAir()) {
+                continue;
+            }
+            BlockState light = Blocks.LIGHT.getDefaultState().with(LightBlock.LEVEL_15, 15);
+            if (active.world.setBlockState(target, light, Block.NOTIFY_ALL)) {
+                active.touched.add(target.toImmutable());
+                return;
+            }
         }
     }
 
@@ -432,7 +469,9 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
         private final Consumer<CnbPlacementProgress> progress;
         private final CompletableFuture<CnbPlacementResult> result;
         private final Set<BlockPos> touched = new LinkedHashSet<>();
+        private final List<CnbHiddenLighting.Section> lightSections;
         private int nextHost;
+        private int nextLightSection;
         private volatile boolean cancelRequested;
 
         private PlacementJob(
@@ -455,6 +494,7 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
             this.origin = origin;
             this.progress = progress;
             this.result = result;
+            this.lightSections = CnbHiddenLighting.plan(packed);
         }
     }
 }
