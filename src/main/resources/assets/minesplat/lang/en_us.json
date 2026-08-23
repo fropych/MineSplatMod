@@ -8,7 +8,7 @@
   "key.minesplat.cnb.up": "Move C&B preview up",
   "key.minesplat.cnb.down": "Move C&B preview down",
   "key.minesplat.cnb.cancel": "Cancel C&B placement",
-  "key.categories.minesplat": "MineSplat",
+  "key.category.minesplat.placement": "MineSplat",
   "minesplat.title": "MineSplat",
   "minesplat.settings": "Settings",
   "minesplat.saved": "Saved",

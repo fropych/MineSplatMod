@@ -205,7 +205,7 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
                     throw new IllegalStateException(
                             "Creative server player is unavailable");
                 }
-                ServerWorld world = player.getServerWorld();
+                ServerWorld world = player.getEntityWorld();
                 if (!world.getRegistryKey().equals(client.world.getRegistryKey())) {
                     throw new IllegalStateException(
                             "Client and integrated server dimensions do not match");
@@ -275,7 +275,7 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
         if (!world.getWorldBorder().contains(target)) {
             throw new IllegalStateException("Placement is outside the world border");
         }
-        if (!world.isChunkLoaded(target)) {
+        if (!world.isChunkLoaded(target.getX() >> 4, target.getZ() >> 4)) {
             throw new IllegalStateException("A target chunk is not loaded");
         }
         if (!world.getBlockState(target).isAir()) {
@@ -360,7 +360,7 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
             BlockPos target = active.origin.add(relative);
             if (active.world.isOutOfHeightLimit(target)
                     || !active.world.getWorldBorder().contains(target)
-                    || !active.world.isChunkLoaded(target)
+                    || !active.world.isChunkLoaded(target.getX() >> 4, target.getZ() >> 4)
                     || !active.world.getBlockState(target).isAir()) {
                 continue;
             }

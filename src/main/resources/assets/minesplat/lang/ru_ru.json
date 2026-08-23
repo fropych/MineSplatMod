@@ -8,7 +8,7 @@
   "key.minesplat.cnb.up": "Поднять C&B-превью",
   "key.minesplat.cnb.down": "Опустить C&B-превью",
   "key.minesplat.cnb.cancel": "Отменить размещение C&B",
-  "key.categories.minesplat": "MineSplat",
+  "key.category.minesplat.placement": "MineSplat",
   "minesplat.title": "MineSplat",
   "minesplat.settings": "Настройки",
   "minesplat.saved": "Сохранённые",

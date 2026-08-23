@@ -124,7 +124,7 @@ public final class LitematicaBridge implements SchematicExporter {
     private SavedSchematic save(PreparedSchematic prepared) {
         Path directory = prepared.output().getParent();
         String fileName = prepared.output().getFileName().toString();
-        if (!prepared.schematic().writeToFile(directory.toFile(), fileName, false)) {
+        if (!prepared.schematic().writeToFile(directory, fileName, false)) {
             throw new IllegalStateException("Litematica could not save " + prepared.output());
         }
         return new SavedSchematic(
@@ -134,7 +134,7 @@ public final class LitematicaBridge implements SchematicExporter {
     private Path place(SavedSchematic saved) {
         requireWorld();
         LitematicaSchematic schematic = SchematicHolder.getInstance()
-                .getOrLoad(saved.output().toFile());
+                .getOrLoad(saved.output());
         if (schematic == null) {
             throw new IllegalStateException("Litematica could not load the saved schematic");
         }

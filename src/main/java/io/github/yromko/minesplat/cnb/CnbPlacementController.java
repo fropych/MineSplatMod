@@ -2,30 +2,31 @@ package io.github.yromko.minesplat.cnb;
 
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.FabricRenderState;
+import net.fabricmc.fabric.api.client.rendering.v1.RenderStateDataKey;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
+import net.fabricmc.fabric.api.client.rendering.v1.world.WorldExtractionContext;
+import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.render.Camera;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.render.WorldRenderer;
+import net.minecraft.client.render.RenderLayers;
+import net.minecraft.client.render.VertexRendering;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
-import net.minecraft.util.TypedActionResult;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.world.RaycastContext;
 import org.lwjgl.glfw.GLFW;
-import org.joml.Matrix4f;
 
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
@@ -34,7 +35,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class CnbPlacementController implements AutoCloseable {
-    private static final String CATEGORY = "key.categories.minesplat";
+    private static final KeyBinding.Category CATEGORY = KeyBinding.Category.create(
+            Identifier.of("minesplat", "placement"));
+    private static final Identifier HUD_ELEMENT =
+            Identifier.of("minesplat", "cnb_placement");
+    private static final RenderStateDataKey<PreviewRenderState> PREVIEW_RENDER_STATE =
+            RenderStateDataKey.create(() -> "MineSplat C&B preview");
     private static final double ANCHOR_RAY_DISTANCE = 1024.0;
     private static final long VALIDATION_CACHE_TICKS = 5;
 
@@ -169,21 +175,23 @@ public final class CnbPlacementController implements AutoCloseable {
 
     private void registerEvents() {
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
-        WorldRenderEvents.BEFORE_DEBUG_RENDER.register(this::renderWorld);
-        HudRenderCallback.EVENT.register(this::renderHud);
+        WorldRenderEvents.END_EXTRACTION.register(this::extractWorld);
+        WorldRenderEvents.END_MAIN.register(this::renderWorld);
+        HudElementRegistry.attachElementAfter(
+                VanillaHudElements.BOSS_BAR, HUD_ELEMENT, this::renderHud);
         UseBlockCallback.EVENT.register((player, world, hand, hit) -> {
-            if (world.isClient && snapshot.state() == CnbPlacementState.PREVIEW) {
+            if (world.isClient() && snapshot.state() == CnbPlacementState.PREVIEW) {
                 confirm();
                 return ActionResult.FAIL;
             }
             return ActionResult.PASS;
         });
         UseItemCallback.EVENT.register((player, world, hand) -> {
-            if (world.isClient && snapshot.state() == CnbPlacementState.PREVIEW) {
+            if (world.isClient() && snapshot.state() == CnbPlacementState.PREVIEW) {
                 confirm();
-                return TypedActionResult.fail(player.getStackInHand(hand));
+                return ActionResult.FAIL;
             }
-            return TypedActionResult.pass(player.getStackInHand(hand));
+            return ActionResult.PASS;
         });
     }
 
@@ -217,7 +225,7 @@ public final class CnbPlacementController implements AutoCloseable {
         boolean changed = false;
         while (rotate.wasPressed()) {
             quarterTurns = Math.floorMod(
-                    quarterTurns + (Screen.hasShiftDown() ? -1 : 1), 4);
+                    quarterTurns + (client.isShiftPressed() ? -1 : 1), 4);
             changed = true;
         }
         while (left.wasPressed()) {
@@ -344,7 +352,7 @@ public final class CnbPlacementController implements AutoCloseable {
             BlockPos target = placementOrigin.add(host.x(), host.y(), host.z());
             if (client.world.isOutOfHeightLimit(target)
                     || !client.world.getWorldBorder().contains(target)
-                    || !client.world.isChunkLoaded(target)
+                    || !client.world.isChunkLoaded(target.getX() >> 4, target.getZ() >> 4)
                     || !client.world.getBlockState(target).isAir()) {
                 valid = false;
                 break;
@@ -428,37 +436,50 @@ public final class CnbPlacementController implements AutoCloseable {
                 }));
     }
 
-    private void renderWorld(WorldRenderContext context) {
+    private void extractWorld(WorldExtractionContext context) {
         CnbPlacementSnapshot current = snapshot;
         CnbPreviewBuffer currentBuffer = previewBuffer;
-        if (current.state() != CnbPlacementState.PREVIEW
-                || origin == null || currentBuffer == null) {
+        BlockPos currentOrigin = origin;
+        PreviewRenderState renderState = null;
+        if (current.state() == CnbPlacementState.PREVIEW
+                && currentOrigin != null && currentBuffer != null) {
+            Vec3d camera = context.camera().getCameraPos();
+            renderState = new PreviewRenderState(
+                    currentBuffer,
+                    currentOrigin.getX() - camera.x,
+                    currentOrigin.getY() - camera.y,
+                    currentOrigin.getZ() - camera.z,
+                    current.width(), current.height(), current.depth(),
+                    current.valid());
+        }
+        ((FabricRenderState) context.worldState()).setData(
+                PREVIEW_RENDER_STATE, renderState);
+    }
+
+    private void renderWorld(WorldRenderContext context) {
+        PreviewRenderState current = ((FabricRenderState) context.worldState())
+                .getData(PREVIEW_RENDER_STATE);
+        if (current == null) {
             return;
         }
-        VertexConsumerProvider consumers = context.consumers();
-        if (consumers == null) {
-            return;
-        }
-        Camera camera = context.camera();
-        double baseX = origin.getX() - camera.getPos().x;
-        double baseY = origin.getY() - camera.getPos().y;
-        double baseZ = origin.getZ() - camera.getPos().z;
-        Matrix4f position = new Matrix4f(context.positionMatrix()).translate(
-                (float) baseX,
-                (float) baseY,
-                (float) baseZ);
-        currentBuffer.draw(position, context.projectionMatrix(), current.valid());
+        current.buffer().draw(current.x(), current.y(), current.z(), current.valid());
         if (!current.valid()) {
-            VertexConsumer outline = consumers.getBuffer(RenderLayer.getLines());
-            WorldRenderer.drawBox(
-                    outline,
-                    baseX - 0.002,
-                    baseY - 0.002,
-                    baseZ - 0.002,
-                    baseX + current.width() + 0.002,
-                    baseY + current.height() + 0.002,
-                    baseZ + current.depth() + 0.002,
-                    1.0f, 0.1f, 0.1f, 1.0f);
+            MatrixStack matrices = context.matrices();
+            if (matrices != null) {
+                VertexRendering.drawOutline(
+                        matrices,
+                        context.consumers().getBuffer(RenderLayers.lines()),
+                        VoxelShapes.cuboid(
+                                -0.002,
+                                -0.002,
+                                -0.002,
+                                current.width() + 0.002,
+                                current.height() + 0.002,
+                                current.depth() + 0.002),
+                        current.x(), current.y(), current.z(),
+                        0xffff1a1a,
+                        1.0f);
+            }
         }
     }
 
@@ -574,6 +595,18 @@ public final class CnbPlacementController implements AutoCloseable {
             CnbPackedModel packed,
             CnbPreviewMesh mesh,
             int quarterTurns
+    ) {
+    }
+
+    private record PreviewRenderState(
+            CnbPreviewBuffer buffer,
+            double x,
+            double y,
+            double z,
+            int width,
+            int height,
+            int depth,
+            boolean valid
     ) {
     }
 }

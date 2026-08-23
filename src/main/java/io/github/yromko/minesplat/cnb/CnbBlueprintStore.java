@@ -4,7 +4,6 @@ import io.github.yromko.minesplat.config.PaletteProfile;
 import io.github.yromko.minesplat.util.FileNames;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtElement;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.nbt.NbtSizeTracker;
@@ -129,15 +128,15 @@ public final class CnbBlueprintStore {
 
     private static CnbBlueprint fromNbt(NbtCompound root) {
         requireExactKeys(root, ROOT_KEYS, "root");
-        int schema = root.getInt("schemaVersion");
+        int schema = requiredInt(root, "schemaVersion");
         if (schema != CnbBlueprint.SCHEMA_VERSION) {
             throw new IllegalArgumentException("Unsupported schema version " + schema);
         }
-        int[] dimensions = root.getIntArray("size");
+        int[] dimensions = requiredIntArray(root, "size");
         if (dimensions.length != 3) {
             throw new IllegalArgumentException("Blueprint size must have three components");
         }
-        String profileId = root.getString("paletteProfile");
+        String profileId = requiredString(root, "paletteProfile");
         PaletteProfile profile = null;
         if ("maximum_color".equals(profileId)) {
             profile = PaletteProfile.ALL;
@@ -152,33 +151,60 @@ public final class CnbBlueprintStore {
             throw new IllegalArgumentException("Unknown palette profile " + profileId);
         }
 
-        NbtList paletteNbt = root.getList("palette", NbtElement.COMPOUND_TYPE);
+        NbtList paletteNbt = root.getList("palette").orElseThrow(() ->
+                missingOrInvalid("palette"));
         if (paletteNbt.isEmpty()) {
             throw new IllegalArgumentException("Blueprint palette is empty");
         }
         List<CnbPaletteEntry> palette = new ArrayList<>(paletteNbt.size());
         Set<String> states = new HashSet<>();
         for (int index = 0; index < paletteNbt.size(); index++) {
-            NbtCompound serialized = paletteNbt.getCompound(index);
+            NbtCompound serialized = requiredCompound(paletteNbt, index);
             requireExactKeys(serialized, PALETTE_KEYS, "palette entry");
-            String state = serialized.getString("state");
+            String state = requiredString(serialized, "state");
             BlockStateStrings.validateSyntax(state);
             if (!states.add(state)) {
                 throw new IllegalArgumentException("Blueprint palette contains duplicate states");
             }
             palette.add(new CnbPaletteEntry(
-                    state, serialized.getIntArray("faceColors")));
+                    state, requiredIntArray(serialized, "faceColors")));
         }
         return new CnbBlueprint(
-                root.getString("name"),
-                root.getString("author"),
-                root.getLong("createdAt"),
-                root.getInt("dataVersion"),
-                root.getInt("resolution"),
+                requiredString(root, "name"),
+                requiredString(root, "author"),
+                requiredLong(root, "createdAt"),
+                requiredInt(root, "dataVersion"),
+                requiredInt(root, "resolution"),
                 dimensions[0], dimensions[1], dimensions[2],
                 profile,
                 palette,
-                root.getLongArray("voxels"));
+                root.getLongArray("voxels").orElseThrow(() ->
+                        missingOrInvalid("voxels")));
+    }
+
+    private static int requiredInt(NbtCompound compound, String key) {
+        return compound.getInt(key).orElseThrow(() -> missingOrInvalid(key));
+    }
+
+    private static long requiredLong(NbtCompound compound, String key) {
+        return compound.getLong(key).orElseThrow(() -> missingOrInvalid(key));
+    }
+
+    private static String requiredString(NbtCompound compound, String key) {
+        return compound.getString(key).orElseThrow(() -> missingOrInvalid(key));
+    }
+
+    private static int[] requiredIntArray(NbtCompound compound, String key) {
+        return compound.getIntArray(key).orElseThrow(() -> missingOrInvalid(key));
+    }
+
+    private static NbtCompound requiredCompound(NbtList list, int index) {
+        return list.getCompound(index).orElseThrow(() ->
+                missingOrInvalid("palette[" + index + "]"));
+    }
+
+    private static IllegalArgumentException missingOrInvalid(String key) {
+        return new IllegalArgumentException("Missing or invalid blueprint field " + key);
     }
 
     private static void requireExactKeys(

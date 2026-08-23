@@ -537,7 +537,7 @@ final class MineSplatSettingsScreen extends Screen {
 
         StatusLine status = currentStatus();
         int statusY = Math.min(height - 48, statusTop);
-        context.drawTextWrapped(
+        context.drawWrappedTextWithShadow(
                 textRenderer,
                 status.text(),
                 left,

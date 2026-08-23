@@ -3,7 +3,6 @@ package io.github.yromko.minesplat.gui;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.text.Text;
 
 /** Shared flat button style for every MineSplat screen. */
 final class MineSplatButton extends ButtonWidget {
@@ -33,7 +32,7 @@ final class MineSplatButton extends ButtonWidget {
     private static final int DISABLED_BORDER = 0xff343c43;
 
     private final Tone tone;
-    private Text label;
+    private net.minecraft.text.Text label;
     private boolean selected;
 
     MineSplatButton(
@@ -41,7 +40,7 @@ final class MineSplatButton extends ButtonWidget {
             int y,
             int width,
             int height,
-            Text label,
+            net.minecraft.text.Text label,
             Tone tone,
             boolean selected,
             PressAction onPress
@@ -54,19 +53,22 @@ final class MineSplatButton extends ButtonWidget {
     }
 
     static MineSplatButton secondary(
-            int x, int y, int width, int height, Text label, PressAction onPress) {
+            int x, int y, int width, int height,
+            net.minecraft.text.Text label, PressAction onPress) {
         return new MineSplatButton(
                 x, y, width, height, label, Tone.SECONDARY, false, onPress);
     }
 
     static MineSplatButton primary(
-            int x, int y, int width, int height, Text label, PressAction onPress) {
+            int x, int y, int width, int height,
+            net.minecraft.text.Text label, PressAction onPress) {
         return new MineSplatButton(
                 x, y, width, height, label, Tone.PRIMARY, false, onPress);
     }
 
     static MineSplatButton danger(
-            int x, int y, int width, int height, Text label, PressAction onPress) {
+            int x, int y, int width, int height,
+            net.minecraft.text.Text label, PressAction onPress) {
         return new MineSplatButton(
                 x, y, width, height, label, Tone.DANGER, false, onPress);
     }
@@ -76,7 +78,7 @@ final class MineSplatButton extends ButtonWidget {
             int y,
             int width,
             int height,
-            Text label,
+            net.minecraft.text.Text label,
             boolean selected,
             PressAction onPress
     ) {
@@ -85,7 +87,7 @@ final class MineSplatButton extends ButtonWidget {
     }
 
     @Override
-    public void setMessage(Text message) {
+    public void setMessage(net.minecraft.text.Text message) {
         label = message;
         refreshDisplayedMessage();
     }
@@ -99,11 +101,13 @@ final class MineSplatButton extends ButtonWidget {
     }
 
     private void refreshDisplayedMessage() {
-        super.setMessage(selected ? Text.literal("✓ ").append(label) : label);
+        super.setMessage(selected
+                ? net.minecraft.text.Text.literal("✓ ").append(label)
+                : label);
     }
 
     @Override
-    protected void renderWidget(DrawContext context, int mouseX, int mouseY, float delta) {
+    protected void drawIcon(DrawContext context, int mouseX, int mouseY, float delta) {
         int x = getX();
         int y = getY();
         boolean highlighted = isHovered() || isFocused();
@@ -142,10 +146,14 @@ final class MineSplatButton extends ButtonWidget {
         if (selected && active) {
             context.fill(x, y, x + 3, y + height, PRIMARY_BORDER);
         }
-        context.drawBorder(x, y, width, height, border);
-        drawMessage(
-                context,
+        context.drawStrokedRectangle(x, y, width, height, border);
+        context.enableScissor(x + 3, y, x + width - 3, y + height);
+        context.drawCenteredTextWithShadow(
                 MinecraftClient.getInstance().textRenderer,
+                getMessage(),
+                x + width / 2,
+                y + (height - 8) / 2,
                 active ? 0xffffff : 0x7f8992);
+        context.disableScissor();
     }
 }

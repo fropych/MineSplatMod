@@ -35,6 +35,7 @@ import net.minecraft.client.gui.tooltip.Tooltip;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.EditBoxWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
+import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.texture.NativeImageBackedTexture;
 import net.minecraft.text.Text;
@@ -61,6 +62,8 @@ public final class MineSplatScreen extends Screen {
     private static final int GAP = 6;
     private static final int BLOCK_LABEL_GAP = 14;
     private static final int BLOCK_ROW_GAP = 38;
+    private static final Identifier SOURCE_PREVIEW_TEXTURE =
+            Identifier.of("minesplat", "source_preview");
 
     private final Screen parent;
     private final MineSplatConfig config;
@@ -232,14 +235,15 @@ public final class MineSplatScreen extends Screen {
             ensurePreview();
         } else {
             int promptHeight = Math.max(40, advancedY - inputTop - GAP);
-            prompt = new EditBoxWidget(
-                    textRenderer,
-                    left,
-                    inputTop,
-                    panelWidth,
-                    promptHeight,
-                    Text.translatable("minesplat.prompt"),
-                    Text.translatable("minesplat.prompt.placeholder"));
+            prompt = EditBoxWidget.builder()
+                    .x(left)
+                    .y(inputTop)
+                    .placeholder(Text.translatable("minesplat.prompt.placeholder"))
+                    .build(
+                            textRenderer,
+                            panelWidth,
+                            promptHeight,
+                            Text.translatable("minesplat.prompt"));
             prompt.setMaxLength(8192);
             prompt.setText(draft.prompt());
             prompt.setChangeListener(draft::prompt);
@@ -762,7 +766,7 @@ public final class MineSplatScreen extends Screen {
     }
 
     @Override
-    public void filesDragged(List<Path> paths) {
+    public void onFilesDropped(List<Path> paths) {
         if (!paths.isEmpty()) {
             persistCurrentFields();
             draft.sourceMode(GenerationSourceMode.IMAGE);
@@ -802,18 +806,19 @@ public final class MineSplatScreen extends Screen {
             NativeImage nativeImage = PreviewImages.load(image, 1024);
             NativeImageBackedTexture texture;
             try {
-                texture = new NativeImageBackedTexture(nativeImage);
+                texture = new NativeImageBackedTexture(
+                        () -> "MineSplat source preview", nativeImage);
             } catch (RuntimeException | Error failure) {
                 nativeImage.close();
                 throw failure;
             }
             try {
-                Identifier identifier = client.getTextureManager().registerDynamicTexture(
-                        "minesplat_source_preview", texture);
+                client.getTextureManager().registerTexture(
+                        SOURCE_PREVIEW_TEXTURE, texture);
                 previewImageWidth = nativeImage.getWidth();
                 previewImageHeight = nativeImage.getHeight();
                 previewTexture = texture;
-                previewIdentifier = identifier;
+                previewIdentifier = SOURCE_PREVIEW_TEXTURE;
                 previewPath = image;
             } catch (RuntimeException | Error failure) {
                 texture.close();
@@ -931,7 +936,8 @@ public final class MineSplatScreen extends Screen {
                     centerX - 6, markerY,
                     centerX + 6, markerY + 12,
                     markerBackground);
-            context.drawBorder(centerX - 6, markerY, 12, 12, markerBorder);
+            context.drawStrokedRectangle(
+                    centerX - 6, markerY, 12, 12, markerBorder);
             context.drawCenteredTextWithShadow(
                     textRenderer,
                     complete ? Text.literal("✓") : Text.literal(Integer.toString(index + 1)),
@@ -953,7 +959,7 @@ public final class MineSplatScreen extends Screen {
             return;
         }
         context.fill(previewLeft, previewTop, previewRight, previewBottom, 0x90000000);
-        context.drawBorder(
+        context.drawStrokedRectangle(
                 previewLeft, previewTop,
                 previewRight - previewLeft,
                 previewBottom - previewTop,
@@ -976,20 +982,19 @@ public final class MineSplatScreen extends Screen {
         int drawnHeight = Math.max(1, Math.round(previewImageHeight * scale));
         int x = previewLeft + (previewRight - previewLeft - drawnWidth) / 2;
         int y = previewTop + (previewBottom - previewTop - drawnHeight) / 2;
-        context.getMatrices().push();
-        context.getMatrices().translate(x, y, 0);
-        context.getMatrices().scale(scale, scale, 1.0f);
         context.drawTexture(
+                RenderPipelines.GUI_TEXTURED,
                 previewIdentifier,
-                0,
-                0,
+                x,
+                y,
                 0.0f,
                 0.0f,
+                drawnWidth,
+                drawnHeight,
                 previewImageWidth,
                 previewImageHeight,
                 previewImageWidth,
                 previewImageHeight);
-        context.getMatrices().pop();
     }
 
     private void renderBlocksPage(DrawContext context) {

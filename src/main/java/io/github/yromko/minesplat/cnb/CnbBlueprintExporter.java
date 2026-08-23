@@ -24,7 +24,7 @@ public final class CnbBlueprintExporter {
         this(
                 store,
                 author,
-                () -> SharedConstants.getGameVersion().getSaveVersion().getId(),
+                () -> SharedConstants.getGameVersion().dataVersion().id(),
                 ioExecutor);
     }
 

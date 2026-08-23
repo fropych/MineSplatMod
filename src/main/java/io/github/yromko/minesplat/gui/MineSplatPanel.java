@@ -17,7 +17,7 @@ final class MineSplatPanel {
         context.fillGradient(
                 panelLeft, TOP, panelRight, panelBottom,
                 0xe0141920, 0xe00c1015);
-        context.drawBorder(
+        context.drawStrokedRectangle(
                 panelLeft, TOP,
                 panelRight - panelLeft,
                 panelBottom - TOP,
