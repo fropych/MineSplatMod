@@ -1,8 +1,9 @@
 package io.github.yromko.minesplat.palette;
 
-import com.google.gson.JsonParser;
 import com.google.gson.JsonParseException;
+import com.google.gson.JsonParser;
 import io.github.yromko.minesplat.config.PaletteProfile;
+import io.github.yromko.minesplat.internal.TargetMetadata;
 import io.github.yromko.minesplat.testutil.TsvoxFixtures;
 import io.github.yromko.minesplat.voxel.TsvoxGrid;
 import io.github.yromko.minesplat.voxel.TsvoxReader;
@@ -21,11 +22,20 @@ class ColorMatcherTest {
     @Test
     void filtersProfilesAndEveryStateOfBlacklistedBlock() {
         BlockPalette palette = BlockPalette.loadDefault();
+        int[] expectedCounts = switch (TargetMetadata.current().minecraftVersion()) {
+            case "1.20.1" -> new int[]{375, 701, 636, 49};
+            case "1.21.1" -> new int[]{399, 796, 731, 49};
+            case "1.21.11" -> new int[]{413, 829, 759, 49};
+            default -> throw new AssertionError("Missing palette expectations for target");
+        };
 
-        assertEquals(399, palette.blockIds().size());
-        assertEquals(796, palette.candidates(PaletteProfile.ALL, Set.of()).size());
-        assertEquals(731, palette.candidates(PaletteProfile.SURVIVAL, Set.of()).size());
-        assertEquals(49, palette.candidates(PaletteProfile.SOLID_COLORS, Set.of()).size());
+        assertEquals(expectedCounts[0], palette.blockIds().size());
+        assertEquals(expectedCounts[1],
+                palette.candidates(PaletteProfile.ALL, Set.of()).size());
+        assertEquals(expectedCounts[2],
+                palette.candidates(PaletteProfile.SURVIVAL, Set.of()).size());
+        assertEquals(expectedCounts[3],
+                palette.candidates(PaletteProfile.SOLID_COLORS, Set.of()).size());
         assertTrue(palette.candidates(PaletteProfile.ALL, Set.of()).stream()
                 .anyMatch(entry -> entry.blockId().equals("minecraft:bedrock")));
         assertFalse(palette.candidates(PaletteProfile.SURVIVAL, Set.of()).stream()
