@@ -57,8 +57,10 @@ src/main/resources/assets/minesplat/palette/palette-1.21.1.json
 src/main/resources/assets/minesplat/palette/palette-1.21.11.json
 ```
 
-At present only the audited 1.21.1 files exist. A target must not be enabled in
-a build until its input and palette have been generated and reviewed.
+All three supported targets have audited inputs and palettes generated twice
+from their exact official client JARs. A new target must not be enabled in a
+build until its input and palette have been generated, reproduced, classified,
+and reviewed with the same process.
 
 ## Build the category JSON
 
