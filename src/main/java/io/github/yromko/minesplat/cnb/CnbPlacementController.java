@@ -443,7 +443,8 @@ public final class CnbPlacementController implements AutoCloseable {
         double baseX = origin.getX() - camera.getPos().x;
         double baseY = origin.getY() - camera.getPos().y;
         double baseZ = origin.getZ() - camera.getPos().z;
-        Matrix4f position = new Matrix4f(context.positionMatrix()).translate(
+        Matrix4f position = new Matrix4f(
+                context.matrixStack().peek().getPositionMatrix()).translate(
                 (float) baseX,
                 (float) baseY,
                 (float) baseZ);
@@ -462,7 +463,7 @@ public final class CnbPlacementController implements AutoCloseable {
         }
     }
 
-    private void renderHud(DrawContext context, net.minecraft.client.render.RenderTickCounter tick) {
+    private void renderHud(DrawContext context, float tickDelta) {
         CnbPlacementSnapshot current = snapshot;
         if (!active() && current.state() != CnbPlacementState.SUCCEEDED
                 && current.state() != CnbPlacementState.FAILED) {

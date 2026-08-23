@@ -25,7 +25,6 @@ import net.minecraft.util.math.Vec3d;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -47,7 +46,9 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
     private static final int MAX_LIGHT_SECTIONS_PER_TICK = 32;
     private static final String API_CLASS = "mod.chiselsandbits.api.IChiselsAndBitsAPI";
     private static final String BLOCK_INFORMATION_CLASS =
-            "mod.chiselsandbits.api.blockinformation.BlockInformation";
+            "mod.chiselsandbits.api.blockinformation.IBlockInformation";
+    private static final String BLOCK_INFORMATION_FACTORY_CLASS =
+            "mod.chiselsandbits.api.blockinformation.IBlockInformationFactory";
     private static final String STATE_ENTRY_SIZE_CLASS =
             "mod.chiselsandbits.api.multistate.StateEntrySize";
     private static final String ELIGIBILITY_MANAGER_CLASS =
@@ -66,8 +67,9 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
     private final Object eligibilityManager;
     private final Object mutatorFactory;
     private final Object changeTrackerManager;
+    private final Object blockInformationFactory;
     private final Class<?> multiStateBlockEntityClass;
-    private final Constructor<?> blockInformationConstructor;
+    private final Method createBlockInformationMethod;
     private final Method canBeChiseledMethod;
     private final Method mutatorInMethod;
     private final Method getChangeTrackerMethod;
@@ -86,7 +88,16 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
                 throw new IllegalStateException("Chisels & Bits API is unavailable");
             }
             Class<?> blockInformation = Class.forName(BLOCK_INFORMATION_CLASS);
-            blockInformationConstructor = findBlockInformationConstructor(blockInformation);
+            Class<?> blockInformationFactoryType = Class.forName(
+                    BLOCK_INFORMATION_FACTORY_CLASS);
+            blockInformationFactory = invokePublic(
+                    apiType.getMethod("getBlockInformationFactory"), api);
+            if (!blockInformationFactoryType.isInstance(blockInformationFactory)) {
+                throw new IllegalStateException(
+                        "Chisels & Bits block-information factory is unavailable");
+            }
+            createBlockInformationMethod = blockInformationFactoryType.getMethod(
+                    "create", BlockState.class, Optional.class);
             Object size = invokePublic(apiType.getMethod("getStateEntrySize"), api);
             bitsPerBlockSide = (int) invokePublic(
                     Class.forName(STATE_ENTRY_SIZE_CLASS)
@@ -250,12 +261,11 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
     }
 
     private Object information(BlockState state) {
-        try {
-            return blockInformationConstructor.newInstance(state, Optional.empty());
-        } catch (ReflectiveOperationException exception) {
-            throw new IllegalStateException(
-                    "Cannot create Chisels & Bits block information", unwrap(exception));
-        }
+        return invokePublic(
+                createBlockInformationMethod,
+                blockInformationFactory,
+                state,
+                Optional.empty());
     }
 
     private static void preflight(
@@ -411,19 +421,6 @@ public final class ChiselsAndBitsIntegration implements CnbIntegration {
             rollback(active, new IllegalStateException(
                     "Placement rolled back because the world is closing"));
         }
-    }
-
-    private static Constructor<?> findBlockInformationConstructor(Class<?> type) {
-        for (Constructor<?> constructor : type.getConstructors()) {
-            Class<?>[] parameters = constructor.getParameterTypes();
-            if (parameters.length == 2
-                    && parameters[0].isAssignableFrom(BlockState.class)
-                    && parameters[1].isAssignableFrom(Optional.class)) {
-                return constructor;
-            }
-        }
-        throw new IllegalStateException(
-                "Chisels & Bits BlockInformation constructor was not found");
     }
 
     private void setInAreaTarget(

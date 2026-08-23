@@ -103,7 +103,7 @@ final class MineSplatButton extends ButtonWidget {
     }
 
     @Override
-    protected void renderWidget(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void renderButton(DrawContext context, int mouseX, int mouseY, float delta) {
         int x = getX();
         int y = getY();
         boolean highlighted = isHovered() || isFocused();

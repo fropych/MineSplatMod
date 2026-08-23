@@ -180,6 +180,50 @@ tasks.register("validateTripoSplatModels") {
     }
 }
 
+tasks.register("validateCnbApiContract") {
+    group = "verification"
+    description = "Verifies the pinned Chisels & Bits 20.1.20 reflection contract."
+    inputs.files(configurations.cnbRuntimeDistribution)
+    doLast {
+        def archives = configurations.cnbRuntimeDistribution.files
+        assert archives.size() == 1:
+                "Expected one Chisels & Bits distribution, got ${archives}"
+        def archive = archives.first()
+        new java.util.zip.ZipFile(archive).withCloseable { zip ->
+            def classBytes = { String resource ->
+                def entry = zip.getEntry(resource)
+                assert entry != null: "Missing Chisels & Bits API class ${resource}"
+                zip.getInputStream(entry).withCloseable { input -> input.readAllBytes() }
+            }
+            def classConstants = { String resource ->
+                new String(classBytes(resource),
+                        java.nio.charset.StandardCharsets.ISO_8859_1)
+            }
+
+            def information =
+                    "mod/chiselsandbits/api/blockinformation/IBlockInformation.class"
+            def factory =
+                    "mod/chiselsandbits/api/blockinformation/IBlockInformationFactory.class"
+            def api = "mod/chiselsandbits/api/IChiselsAndBitsAPI.class"
+            assert zip.getEntry(information) != null
+            assert zip.getEntry(
+                    "mod/chiselsandbits/api/blockinformation/BlockInformation.class") == null
+
+            def factoryConstants = classConstants(factory)
+            assert factoryConstants.contains("create")
+            assert factoryConstants.contains(
+                    "(Lnet/minecraft/class_2680;Ljava/util/Optional;)" +
+                            "Lmod/chiselsandbits/api/blockinformation/IBlockInformation;")
+
+            def apiConstants = classConstants(api)
+            assert apiConstants.contains("getBlockInformationFactory")
+            assert apiConstants.contains(
+                    "()Lmod/chiselsandbits/api/blockinformation/" +
+                            "IBlockInformationFactory;")
+        }
+    }
+}
+
 tasks.withType(JavaCompile).configureEach {
     options.encoding = "UTF-8"
     options.release = javaRelease
@@ -377,6 +421,7 @@ tasks.register("verifyReleaseArtifacts") {
 }
 
 tasks.named("check") {
+    dependsOn tasks.named("validateCnbApiContract")
     dependsOn tasks.named("validateMrpack")
     dependsOn tasks.named("validateTargetMetadata")
     dependsOn tasks.named("validateTargetPalette")

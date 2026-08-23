@@ -22,9 +22,8 @@ public final class CnbPreviewBuffer implements AutoCloseable {
 
     public static CnbPreviewBuffer upload(CnbPreviewMesh mesh) {
         RenderSystem.assertOnRenderThread();
-        BufferBuilder builder = Tessellator.getInstance().begin(
-                VertexFormat.DrawMode.QUADS,
-                VertexFormats.POSITION_COLOR);
+        BufferBuilder builder = Tessellator.getInstance().getBuffer();
+        builder.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
         mesh.write(builder, PREVIEW_ALPHA);
 
         VertexBuffer uploaded = new VertexBuffer(VertexBuffer.Usage.STATIC);

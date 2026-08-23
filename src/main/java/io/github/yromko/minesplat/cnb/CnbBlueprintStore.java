@@ -7,8 +7,10 @@ import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.NbtList;
-import net.minecraft.nbt.NbtSizeTracker;
+import net.minecraft.nbt.NbtTagSizeTracker;
 
+import java.io.BufferedInputStream;
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -19,6 +21,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.zip.GZIPInputStream;
 
 public final class CnbBlueprintStore {
     private static final long MAX_COMPRESSED_BYTES = 64L * 1024 * 1024;
@@ -50,7 +53,7 @@ public final class CnbBlueprintStore {
         Files.createDirectories(directory);
         Path temporary = output.resolveSibling(output.getFileName() + ".tmp");
         try {
-            NbtIo.writeCompressed(toNbt(blueprint), temporary);
+            NbtIo.writeCompressed(toNbt(blueprint), temporary.toFile());
             try {
                 Files.move(temporary, output, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException ignored) {
@@ -71,8 +74,13 @@ public final class CnbBlueprintStore {
         if (size < 1 || size > MAX_COMPRESSED_BYTES) {
             throw new IOException("MineSplat blueprint file size is invalid");
         }
-        NbtCompound root = NbtIo.readCompressed(
-                normalized, NbtSizeTracker.of(MAX_UNCOMPRESSED_BYTES));
+        NbtCompound root;
+        try (var fileInput = Files.newInputStream(normalized);
+             var bufferedInput = new BufferedInputStream(fileInput);
+             var gzipInput = new GZIPInputStream(bufferedInput);
+             var dataInput = new DataInputStream(gzipInput)) {
+            root = NbtIo.read(dataInput, new NbtTagSizeTracker(MAX_UNCOMPRESSED_BYTES));
+        }
         try {
             return fromNbt(root);
         } catch (RuntimeException exception) {
