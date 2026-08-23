@@ -108,6 +108,16 @@ public final class BlockPalette {
         return Collections.unmodifiableSet(result);
     }
 
+    public Set<String> blockIds(PaletteProfile profile) {
+        Set<String> result = new LinkedHashSet<>();
+        for (PaletteEntry entry : entries) {
+            if (entry.supportsProfile(profile.id())) {
+                result.add(entry.blockId());
+            }
+        }
+        return Collections.unmodifiableSet(result);
+    }
+
     private static int[] rgb(JsonArray array) {
         if (array == null || array.size() != 3) {
             throw new JsonParseException("RGB face color must have three channels");

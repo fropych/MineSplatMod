@@ -64,6 +64,12 @@ textures into the project output. Block categories are maintained separately
 from version-specific colors; the reproducible TXT-to-JSON workflow is
 documented in `tools/palette/README.md`.
 
+Built-in `All`, `Survival`, and `Solid Colors` palettes are read-only. Custom
+palettes can be created and edited in the block-settings screen. They are saved
+as version-independent block-ID differences under
+`config/minesplat/palettes/*.json`; the global block blacklist is applied on
+top of the selected palette.
+
 ## API contract
 
 Generation always sends `num_gaussians=32768`, `guidance=3.0`, and

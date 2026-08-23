@@ -38,6 +38,13 @@
 цвета` оставляет шерсть, бетон и терракоту. Падающие блоки вроде песка и
 полупрозрачные блоки не используются ни в одной палитре.
 
+Нажатие на кнопку палитры открывает отдельный менеджер. В нём можно выбрать
+встроенную палитру либо создать, изменить, скопировать или удалить свою. В
+редакторе задаются название и базовая категория, после чего блоки включаются и
+исключаются через поиск. Пользовательские палитры хранятся в
+`minecraft/config/minesplat/palettes/*.json`; общий blacklist применяется
+поверх выбранной палитры.
+
 Локальный runtime уже находится внутри JAR. Пять базовых файлов загружаются, а
 три из них конвертируются во встроенный формат; итоговый набор занимает
 3 609 105 870 байт. Опциональный набор промпта (Z-Image, Qwen и VAE) скачивается
@@ -160,6 +167,12 @@ Minecraft-сервере. Локальный TripoSplat запускается �
 blocks unavailable in ordinary Survival, and `Solid Colors` keeps wool,
 concrete, and terracotta. Falling blocks such as sand and translucent blocks
 are excluded from every palette.
+
+The palette button opens a dedicated manager where built-in palettes can be
+selected and custom palettes can be created, edited, duplicated, or deleted.
+The editor provides a base category, block-ID search, and per-block toggles.
+Custom palettes live in `minecraft/config/minesplat/palettes/*.json`; the
+global blacklist is applied on top of the selected palette.
 
 The `.litematic` is saved under
 `<instance>/minecraft/schematics/minesplat/`, loaded by Litematica, and placed

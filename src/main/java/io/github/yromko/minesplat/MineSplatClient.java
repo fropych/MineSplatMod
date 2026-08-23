@@ -16,6 +16,7 @@ import io.github.yromko.minesplat.inference.TripoSplatEndpointResolver;
 import io.github.yromko.minesplat.inference.TripoSplatRuntimeVersion;
 import io.github.yromko.minesplat.litematica.LitematicaBridge;
 import io.github.yromko.minesplat.palette.BlockPalette;
+import io.github.yromko.minesplat.palette.CustomPaletteStore;
 import io.github.yromko.minesplat.workflow.MineSplatController;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.loader.api.FabricLoader;
@@ -29,6 +30,7 @@ import java.nio.file.Path;
 public final class MineSplatClient implements ClientModInitializer {
     private static MineSplatConfig config;
     private static BlockPalette palette;
+    private static CustomPaletteStore customPalettes;
     private static MineSplatController controller;
     private static CnbIntegration cnbIntegration;
     private static CnbBlueprintStore cnbBlueprints;
@@ -42,6 +44,7 @@ public final class MineSplatClient implements ClientModInitializer {
     public void onInitializeClient() {
         config = MineSplatConfig.load();
         palette = BlockPalette.loadDefault();
+        customPalettes = CustomPaletteStore.gameStore();
         MinecraftClient client = MinecraftClient.getInstance();
         cnbIntegration = CnbIntegrationLoader.load();
         cnbBlueprints = CnbBlueprintStore.gameStore();
@@ -90,6 +93,7 @@ public final class MineSplatClient implements ClientModInitializer {
                 parent,
                 config,
                 palette,
+                customPalettes,
                 controller,
                 DRAFT,
                 cnbPlacement,
@@ -111,7 +115,7 @@ public final class MineSplatClient implements ClientModInitializer {
     }
 
     private static void requireInitialized() {
-        if (config == null || palette == null || controller == null
+        if (config == null || palette == null || customPalettes == null || controller == null
                 || cnbPlacement == null || cnbBlueprints == null
                 || localModels == null || localRuntime == null) {
             throw new IllegalStateException("MineSplat client has not initialized");

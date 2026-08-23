@@ -19,6 +19,8 @@ import io.github.yromko.minesplat.inference.LocalRuntimeManager;
 import io.github.yromko.minesplat.inference.LocalRuntimeSnapshot;
 import io.github.yromko.minesplat.inference.LocalRuntimeState;
 import io.github.yromko.minesplat.palette.BlockPalette;
+import io.github.yromko.minesplat.palette.CustomPalette;
+import io.github.yromko.minesplat.palette.CustomPaletteStore;
 import io.github.yromko.minesplat.util.FileNames;
 import io.github.yromko.minesplat.util.ImageFiles;
 import io.github.yromko.minesplat.util.PreviewImages;
@@ -44,7 +46,10 @@ import org.lwjgl.util.tinyfd.TinyFileDialogs;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
@@ -60,6 +65,7 @@ public final class MineSplatScreen extends Screen {
     private final Screen parent;
     private final MineSplatConfig config;
     private final BlockPalette palette;
+    private final CustomPaletteStore customPalettes;
     private final MineSplatController controller;
     private final MineSplatDraft draft;
     private final CnbPlacementController cnbPlacement;
@@ -111,6 +117,7 @@ public final class MineSplatScreen extends Screen {
             Screen parent,
             MineSplatConfig config,
             BlockPalette palette,
+            CustomPaletteStore customPalettes,
             MineSplatController controller,
             MineSplatDraft draft,
             CnbPlacementController cnbPlacement,
@@ -122,6 +129,7 @@ public final class MineSplatScreen extends Screen {
         this.parent = parent;
         this.config = config;
         this.palette = palette;
+        this.customPalettes = customPalettes;
         this.controller = controller;
         this.draft = draft;
         this.cnbPlacement = cnbPlacement;
@@ -317,17 +325,16 @@ public final class MineSplatScreen extends Screen {
         int optionLeft = left + (panelWidth - optionRowWidth) / 2;
         int half = (optionRowWidth - GAP) / 2;
         int optionsY = presetsY + BLOCK_ROW_GAP;
+        Text selectedPalette = selectedCustomPalette()
+                .<Text>map(value -> Text.literal(value.name()))
+                .orElseGet(() -> Text.translatable(
+                        "minesplat.palette." + config.paletteProfile().id()));
         Text paletteLabel = Text.translatable("minesplat.palette")
                 .append(": ")
-                .append(Text.translatable(
-                        "minesplat.palette." + config.paletteProfile().id()));
+                .append(selectedPalette);
         addDrawableChild(MineSplatButton.secondary(
                 optionLeft, optionsY, half, 20, paletteLabel,
-                ignored -> {
-                    config.paletteProfile(config.paletteProfile().next());
-                    saveConfig();
-                    buildWidgets();
-                }));
+                ignored -> openPalettes()));
         addDrawableChild(MineSplatButton.secondary(
                 optionLeft + half + GAP, optionsY, half, 20,
                 Text.translatable("minesplat.blacklist.summary",
@@ -593,6 +600,12 @@ public final class MineSplatScreen extends Screen {
         client.setScreen(new BlacklistScreen(this, config, palette));
     }
 
+    private void openPalettes() {
+        persistCurrentFields();
+        client.setScreen(new PaletteSelectionScreen(
+                this, config, palette, customPalettes));
+    }
+
     private void openLibrary() {
         persistCurrentFields();
         client.setScreen(new CnbBlueprintLibraryScreen(
@@ -610,6 +623,7 @@ public final class MineSplatScreen extends Screen {
         try {
             GenerationSource source = generationSource();
             InferenceTarget target = inferenceTarget();
+            RuntimePalette runtimePalette = runtimePalette();
             String name = FileNames.sanitize(draft.schematicName());
             draft.schematicName(name);
             CompletableFuture<Path> flow;
@@ -618,8 +632,8 @@ public final class MineSplatScreen extends Screen {
                 flow = controller.rebuildOrRevoxelize(
                         name,
                         config.voxelPreset(),
-                        config.paletteProfile(),
-                        config.blacklistedBlocks(),
+                        runtimePalette.profile(),
+                        runtimePalette.blacklist(),
                         config.outputMode());
             } else {
                 flow = controller.start(new GenerationRequest(
@@ -629,8 +643,8 @@ public final class MineSplatScreen extends Screen {
                         parsedSeed,
                         config.generationPreset(),
                         config.voxelPreset(),
-                        config.paletteProfile(),
-                        config.blacklistedBlocks(),
+                        runtimePalette.profile(),
+                        runtimePalette.blacklist(),
                         config.outputMode()));
             }
             page = Page.PROGRESS;
@@ -664,6 +678,26 @@ public final class MineSplatScreen extends Screen {
         return new InferenceTarget.Remote(config.serverUrl());
     }
 
+    private Optional<CustomPalette> selectedCustomPalette() {
+        return customPalettes.find(config.customPaletteId());
+    }
+
+    private RuntimePalette runtimePalette() {
+        Set<String> blacklist = new LinkedHashSet<>(config.blacklistedBlocks());
+        Optional<CustomPalette> selected = selectedCustomPalette();
+        if (selected.isEmpty()) {
+            return new RuntimePalette(config.paletteProfile(), Set.copyOf(blacklist));
+        }
+        Set<String> allowed = selected.get().effectiveBlocks(palette);
+        if (allowed.isEmpty()) {
+            throw new IllegalStateException(
+                    Text.translatable("minesplat.palette_editor.empty").getString());
+        }
+        return new RuntimePalette(
+                PaletteProfile.ALL,
+                selected.get().combinedBlacklist(palette, blacklist));
+    }
+
     private Long parsedSeed() {
         try {
             String value = seed == null ? Long.toString(config.seed()) : seed.getText();
@@ -671,6 +705,9 @@ public final class MineSplatScreen extends Screen {
         } catch (NumberFormatException exception) {
             return null;
         }
+    }
+
+    private record RuntimePalette(PaletteProfile profile, Set<String> blacklist) {
     }
 
     private void persistCurrentFields() {

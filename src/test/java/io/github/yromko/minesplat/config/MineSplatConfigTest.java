@@ -43,7 +43,7 @@ class MineSplatConfigTest {
         assertEquals(Set.of("minecraft:stone"), config.blacklistedBlocks());
 
         JsonObject json = JsonParser.parseString(config.toJson()).getAsJsonObject();
-        assertEquals(4, json.get("schemaVersion").getAsInt());
+        assertEquals(5, json.get("schemaVersion").getAsInt());
         assertEquals("base", json.get("generationPreset").getAsString());
         assertEquals("litematica", json.get("outputMode").getAsString());
         assertEquals("remote", json.get("inferenceMode").getAsString());
@@ -65,5 +65,27 @@ class MineSplatConfigTest {
         assertEquals(2, config.localDeviceIndex());
         assertEquals("/models/triposplat", config.localModelDirectory());
         assertEquals(GenerationPreset.HIGH, config.generationPreset());
+    }
+
+    @Test
+    void validatesCustomPaletteSelectionAndClearsItForBuiltIns() {
+        MineSplatConfig config = MineSplatConfig.parse("""
+                {
+                  "paletteProfile": "all",
+                  "customPaletteId": "  BUILDERS-choice  "
+                }
+                """);
+
+        assertEquals("builders-choice", config.customPaletteId());
+        config.selectCustomPalette("colors", PaletteProfile.SOLID_COLORS);
+        assertEquals(PaletteProfile.SOLID_COLORS, config.paletteProfile());
+        assertEquals("colors", config.customPaletteId());
+        config.paletteProfile(PaletteProfile.SOLID_COLORS);
+        assertEquals("", config.customPaletteId());
+
+        MineSplatConfig invalid = MineSplatConfig.parse("""
+                {"customPaletteId":"../../outside"}
+                """);
+        assertEquals("", invalid.customPaletteId());
     }
 }

@@ -16,7 +16,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 public final class MineSplatConfig {
-    public static final int SCHEMA_VERSION = 4;
+    public static final int SCHEMA_VERSION = 5;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private int schemaVersion = SCHEMA_VERSION;
@@ -28,6 +28,7 @@ public final class MineSplatConfig {
     private long seed = 42;
     private String voxelPreset = VoxelPreset.STANDARD.id();
     private String paletteProfile = PaletteProfile.SURVIVAL.id();
+    private String customPaletteId = "";
     private String outputMode = OutputMode.LITEMATICA.id();
     private Set<String> blacklistedBlocks = new LinkedHashSet<>();
 
@@ -96,6 +97,7 @@ public final class MineSplatConfig {
         }
         voxelPreset = VoxelPreset.fromId(voxelPreset).id();
         paletteProfile = PaletteProfile.fromId(paletteProfile).id();
+        customPaletteId = validCustomPaletteId(customPaletteId);
         outputMode = OutputMode.fromId(outputMode).id();
         if (blacklistedBlocks == null) {
             blacklistedBlocks = new LinkedHashSet<>();
@@ -172,6 +174,20 @@ public final class MineSplatConfig {
 
     public void paletteProfile(PaletteProfile value) {
         paletteProfile = value.id();
+        customPaletteId = "";
+    }
+
+    public String customPaletteId() {
+        return customPaletteId;
+    }
+
+    public void customPaletteId(String value) {
+        customPaletteId = validCustomPaletteId(value);
+    }
+
+    public void selectCustomPalette(String id, PaletteProfile baseCategory) {
+        paletteProfile = (baseCategory == null ? PaletteProfile.SURVIVAL : baseCategory).id();
+        customPaletteId = validCustomPaletteId(id);
     }
 
     public OutputMode outputMode() {
@@ -188,5 +204,10 @@ public final class MineSplatConfig {
 
     public void blacklistedBlocks(Set<String> values) {
         blacklistedBlocks = new LinkedHashSet<>(values);
+    }
+
+    private static String validCustomPaletteId(String value) {
+        String id = value == null ? "" : value.strip().toLowerCase(java.util.Locale.ROOT);
+        return id.matches("[a-z0-9][a-z0-9_-]{0,63}") ? id : "";
     }
 }
