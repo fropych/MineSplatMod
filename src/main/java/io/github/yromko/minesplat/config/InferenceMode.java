@@ -20,6 +20,6 @@ public enum InferenceMode {
                 return mode;
             }
         }
-        return REMOTE;
+        return LOCAL;
     }
 }

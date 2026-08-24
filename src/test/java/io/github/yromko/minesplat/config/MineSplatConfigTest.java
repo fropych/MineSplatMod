@@ -43,10 +43,64 @@ class MineSplatConfigTest {
         assertEquals(Set.of("minecraft:stone"), config.blacklistedBlocks());
 
         JsonObject json = JsonParser.parseString(config.toJson()).getAsJsonObject();
-        assertEquals(5, json.get("schemaVersion").getAsInt());
+        assertEquals(6, json.get("schemaVersion").getAsInt());
         assertEquals("base", json.get("generationPreset").getAsString());
         assertEquals("litematica", json.get("outputMode").getAsString());
         assertEquals("remote", json.get("inferenceMode").getAsString());
+    }
+
+    @Test
+    void defaultsFreshAndUnconfiguredLegacyConfigsToLocal() {
+        MineSplatConfig fresh = MineSplatConfig.parse("{}");
+        MineSplatConfig oldDefault = MineSplatConfig.parse("""
+                {
+                  "schemaVersion": 5,
+                  "inferenceMode": "remote",
+                  "serverUrl": ""
+                }
+                """);
+        MineSplatConfig oldMissingMode = MineSplatConfig.parse("""
+                {
+                  "schemaVersion": 5,
+                  "serverUrl": ""
+                }
+                """);
+        MineSplatConfig invalid = MineSplatConfig.parse("""
+                {
+                  "schemaVersion": 6,
+                  "inferenceMode": "future"
+                }
+                """);
+
+        assertEquals(InferenceMode.LOCAL, fresh.inferenceMode());
+        assertEquals(InferenceMode.LOCAL, oldDefault.inferenceMode());
+        assertEquals(InferenceMode.LOCAL, oldMissingMode.inferenceMode());
+        assertEquals(InferenceMode.LOCAL, invalid.inferenceMode());
+        assertEquals("local", JsonParser.parseString(fresh.toJson())
+                .getAsJsonObject().get("inferenceMode").getAsString());
+    }
+
+    @Test
+    void preservesConfiguredRemoteInference() {
+        MineSplatConfig config = MineSplatConfig.parse("""
+                {
+                  "schemaVersion": 5,
+                  "inferenceMode": "remote",
+                  "serverUrl": "https://example.test"
+                }
+                """);
+
+        assertEquals(InferenceMode.REMOTE, config.inferenceMode());
+        assertEquals("https://example.test", config.serverUrl());
+
+        MineSplatConfig currentExplicitRemote = MineSplatConfig.parse("""
+                {
+                  "schemaVersion": 6,
+                  "inferenceMode": "remote",
+                  "serverUrl": ""
+                }
+                """);
+        assertEquals(InferenceMode.REMOTE, currentExplicitRemote.inferenceMode());
     }
 
     @Test

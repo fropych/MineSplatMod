@@ -25,6 +25,7 @@ import java.util.Deque;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -434,12 +435,14 @@ public final class LocalRuntimeManager implements AutoCloseable {
         if (modelSnapshot.state() == LocalModelState.READY
                 && snapshot.state() == LocalRuntimeState.MISSING_MODELS) {
             update(LocalRuntimeSnapshot.stopped(platform));
-        } else if (modelSnapshot.state() != LocalModelState.READY
-                && modelSnapshot.state() != LocalModelState.CHECKING) {
-            update(new LocalRuntimeSnapshot(
-                    LocalRuntimeState.MISSING_MODELS, platform,
-                    "Install TripoSplat models", modelSnapshot.error(),
-                    null, 0, null));
+        } else if (modelSnapshot.state() != LocalModelState.READY) {
+            if (snapshot.state() != LocalRuntimeState.MISSING_MODELS
+                    || !Objects.equals(snapshot.error(), modelSnapshot.error())) {
+                update(new LocalRuntimeSnapshot(
+                        LocalRuntimeState.MISSING_MODELS, platform,
+                        "Install TripoSplat models", modelSnapshot.error(),
+                        null, 0, null));
+            }
         }
     }
 
