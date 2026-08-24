@@ -2,7 +2,9 @@ package io.github.yromko.minesplat.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
+import com.google.gson.JsonParser;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.IOException;
@@ -16,12 +18,12 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 public final class MineSplatConfig {
-    public static final int SCHEMA_VERSION = 5;
+    public static final int SCHEMA_VERSION = 6;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private int schemaVersion = SCHEMA_VERSION;
     private String serverUrl = "";
-    private String inferenceMode = InferenceMode.REMOTE.id();
+    private String inferenceMode = InferenceMode.LOCAL.id();
     private int localDeviceIndex = 0;
     private String localModelDirectory = "";
     private String generationPreset = GenerationPreset.BASE.id();
@@ -38,13 +40,18 @@ public final class MineSplatConfig {
             return new MineSplatConfig();
         }
         try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-            MineSplatConfig value = GSON.fromJson(reader, MineSplatConfig.class);
+            var parsed = JsonParser.parseReader(reader);
+            if (!parsed.isJsonObject()) {
+                return new MineSplatConfig();
+            }
+            JsonObject json = parsed.getAsJsonObject();
+            MineSplatConfig value = GSON.fromJson(json, MineSplatConfig.class);
             if (value == null) {
                 return new MineSplatConfig();
             }
-            value.validateAndMigrate();
+            value.validateAndMigrate(json.has("inferenceMode"));
             return value;
-        } catch (IOException | JsonParseException exception) {
+        } catch (IOException | IllegalStateException | JsonParseException exception) {
             return new MineSplatConfig();
         }
     }
@@ -65,16 +72,21 @@ public final class MineSplatConfig {
     }
 
     static MineSplatConfig parse(String json) {
-        MineSplatConfig value = GSON.fromJson(json, MineSplatConfig.class);
+        var parsed = JsonParser.parseString(json);
+        if (!parsed.isJsonObject()) {
+            return new MineSplatConfig();
+        }
+        JsonObject object = parsed.getAsJsonObject();
+        MineSplatConfig value = GSON.fromJson(object, MineSplatConfig.class);
         if (value == null) {
             value = new MineSplatConfig();
         }
-        value.validateAndMigrate();
+        value.validateAndMigrate(object.has("inferenceMode"));
         return value;
     }
 
     String toJson() {
-        validateAndMigrate();
+        validateAndMigrate(true);
         return GSON.toJson(this);
     }
 
@@ -83,9 +95,23 @@ public final class MineSplatConfig {
     }
 
     private void validateAndMigrate() {
-        schemaVersion = SCHEMA_VERSION;
+        validateAndMigrate(true);
+    }
+
+    private void validateAndMigrate(boolean inferenceModePresent) {
+        int previousSchema = schemaVersion;
         serverUrl = serverUrl == null ? "" : serverUrl.trim();
-        inferenceMode = InferenceMode.fromId(inferenceMode).id();
+        InferenceMode selectedMode = InferenceMode.fromId(inferenceMode);
+        if (previousSchema < 6) {
+            if (!inferenceModePresent) {
+                selectedMode = serverUrl.isBlank()
+                        ? InferenceMode.LOCAL : InferenceMode.REMOTE;
+            } else if (selectedMode == InferenceMode.REMOTE && serverUrl.isBlank()) {
+                selectedMode = InferenceMode.LOCAL;
+            }
+        }
+        inferenceMode = selectedMode.id();
+        schemaVersion = SCHEMA_VERSION;
         if (localDeviceIndex < 0) {
             localDeviceIndex = 0;
         }
@@ -119,7 +145,7 @@ public final class MineSplatConfig {
     }
 
     public void inferenceMode(InferenceMode value) {
-        inferenceMode = value == null ? InferenceMode.REMOTE.id() : value.id();
+        inferenceMode = value == null ? InferenceMode.LOCAL.id() : value.id();
     }
 
     public int localDeviceIndex() {

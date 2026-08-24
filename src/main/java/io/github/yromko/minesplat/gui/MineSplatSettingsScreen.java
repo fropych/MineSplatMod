@@ -489,7 +489,12 @@ final class MineSplatSettingsScreen extends Screen {
             case DOWNLOADING -> new StatusLine(Text.translatable(
                     "minesplat.local.status.models_downloading_set",
                     name,
-                    (int) Math.round(snapshot.progress() * 100.0),
+                    Math.min(99, (int) Math.floor(snapshot.progress() * 100.0)),
+                    snapshot.currentFile() == null ? "models" : snapshot.currentFile()),
+                    0xffff55);
+            case VERIFYING -> new StatusLine(Text.translatable(
+                    "minesplat.local.status.models_verifying_set",
+                    name,
                     snapshot.currentFile() == null ? "models" : snapshot.currentFile()),
                     0xffff55);
             case CONVERTING -> new StatusLine(Text.translatable(

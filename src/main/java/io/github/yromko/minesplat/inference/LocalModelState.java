@@ -4,6 +4,7 @@ public enum LocalModelState {
     CHECKING,
     MISSING,
     DOWNLOADING,
+    VERIFYING,
     CONVERTING,
     READY,
     FAILED

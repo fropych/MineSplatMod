@@ -5,6 +5,8 @@ import com.google.gson.JsonParseException;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.Reader;
+import java.io.StringReader;
 import java.io.OutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -18,27 +20,42 @@ import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class LocalModelManager implements AutoCloseable {
     private static final Gson GSON = new Gson();
     private static final long FREE_SPACE_MARGIN = 512L * 1024L * 1024L;
+    private static final int MAX_CONCURRENT_DOWNLOADS = 3;
+    private static final long PROGRESS_PUBLISH_INTERVAL_NANOS = 100_000_000L;
+    private static final Pattern CONTENT_RANGE = Pattern.compile(
+            "bytes\\s+(\\d+)-(\\d+)/(\\d+)", Pattern.CASE_INSENSITIVE);
     private static final String MANIFEST_RESOURCE =
             "/assets/minesplat/triposplat/model-manifest.json";
 
     private final HttpClient http;
     private final ExecutorService worker;
+    private final ExecutorService downloadWorkers;
     private final Map<LocalModelSet, List<ModelFile>> files =
             new EnumMap<>(LocalModelSet.class);
     private final Map<LocalModelSet, Long> totalBytes =
@@ -46,6 +63,8 @@ public final class LocalModelManager implements AutoCloseable {
     private final Map<LocalModelSet, CopyOnWriteArrayList<Consumer<LocalModelSnapshot>>>
             listeners = new EnumMap<>(LocalModelSet.class);
     private final AtomicBoolean cancelled = new AtomicBoolean();
+    private final Set<CompletableFuture<?>> activeRequests = ConcurrentHashMap.newKeySet();
+    private final Set<InputStream> activeBodies = ConcurrentHashMap.newKeySet();
 
     private volatile Path directory;
     private volatile LocalModelSnapshot coreSnapshot;
@@ -62,6 +81,14 @@ public final class LocalModelManager implements AutoCloseable {
     }
 
     LocalModelManager(Path directory, HttpClient http) {
+        this(directory, http, loadManifest());
+    }
+
+    LocalModelManager(Path directory, HttpClient http, String manifestJson) {
+        this(directory, http, parseManifest(new StringReader(manifestJson)));
+    }
+
+    private LocalModelManager(Path directory, HttpClient http, ModelManifest manifest) {
         this.directory = normalize(directory);
         this.http = http;
         this.worker = Executors.newSingleThreadExecutor(runnable -> {
@@ -69,10 +96,18 @@ public final class LocalModelManager implements AutoCloseable {
             thread.setDaemon(true);
             return thread;
         });
+        AtomicInteger downloadThread = new AtomicInteger();
+        this.downloadWorkers = Executors.newFixedThreadPool(
+                MAX_CONCURRENT_DOWNLOADS,
+                runnable -> {
+                    Thread thread = new Thread(runnable,
+                            "MineSplat model download " + downloadThread.incrementAndGet());
+                    thread.setDaemon(true);
+                    return thread;
+                });
         for (LocalModelSet set : LocalModelSet.values()) {
             listeners.put(set, new CopyOnWriteArrayList<>());
         }
-        ModelManifest manifest = loadManifest();
         for (LocalModelSet set : LocalModelSet.values()) {
             List<ModelFile> selected = manifest.files().stream()
                     .filter(file -> file.modelSet() == set)
@@ -117,8 +152,7 @@ public final class LocalModelManager implements AutoCloseable {
     }
 
     public boolean installing() {
-        CompletableFuture<Void> install = activeInstall;
-        return install != null && !install.isDone();
+        return activeInstall != null;
     }
 
     public LocalModelSet activeSet() {
@@ -199,41 +233,60 @@ public final class LocalModelManager implements AutoCloseable {
         cancelled.set(false);
         activeSet = set;
         Path targetDirectory = directory;
-        update(set, downloading(targetDirectory, set, null));
-        CompletableFuture<Void> install = CompletableFuture.runAsync(
-                () -> installAll(targetDirectory, set), worker);
+        update(set, verifying(targetDirectory, set, null, approximateStoredBytes(
+                targetDirectory, set)));
+        CompletableFuture<Void> install = new CompletableFuture<>();
         activeInstall = install;
-        install.whenComplete((ignored, failure) -> {
-            synchronized (this) {
-                activeInstall = null;
-                activeSet = null;
-            }
-            if (!directory.equals(targetDirectory)) {
-                return;
-            }
-            Throwable cause = unwrap(failure);
-            if (cause instanceof CancellationException) {
-                publishVerification(targetDirectory, set,
-                        verifyAllInstalled(targetDirectory, set));
-            } else if (cause != null) {
-                update(set, failed(targetDirectory, set, usefulMessage(cause)));
-            } else {
-                publishVerification(targetDirectory, set, true);
-            }
-        });
+        try {
+            CompletableFuture.runAsync(
+                    () -> installAll(targetDirectory, set), worker)
+                    .whenComplete((ignored, failure) -> finishInstall(
+                            install, targetDirectory, set, failure));
+        } catch (RuntimeException failure) {
+            finishInstall(install, targetDirectory, set, failure);
+        }
         return install;
     }
 
+    private void finishInstall(
+            CompletableFuture<Void> install,
+            Path targetDirectory,
+            LocalModelSet set,
+            Throwable failure
+    ) {
+        Throwable cause = unwrap(failure);
+        synchronized (this) {
+            if (activeInstall == install) {
+                if (directory.equals(targetDirectory)) {
+                    if (cause instanceof CancellationException) {
+                        publishVerification(targetDirectory, set, false);
+                    } else if (cause != null) {
+                        update(set, failed(targetDirectory, set, usefulMessage(cause)));
+                    } else {
+                        publishVerification(targetDirectory, set, true);
+                    }
+                }
+                activeInstall = null;
+                activeSet = null;
+            }
+        }
+        if (cause == null) {
+            install.complete(null);
+        } else {
+            install.completeExceptionally(cause);
+        }
+    }
+
     public void cancelInstall() {
-        cancelled.set(true);
+        cancelActiveTransfers();
     }
 
     private void installAll(Path targetDirectory, LocalModelSet set) {
         try {
             Files.createDirectories(targetDirectory);
-            long present = existingBytes(targetDirectory, set);
-            long required = requiredDownloadBytes(targetDirectory, set)
-                    + conversionScratchBytes(targetDirectory, set);
+            List<PreparedFile> plan = prepareFiles(targetDirectory, set);
+            long required = plan.stream().mapToLong(PreparedFile::requiredDownloadBytes).sum()
+                    + conversionScratchBytes(set, plan);
             FileStore store = Files.getFileStore(targetDirectory);
             if (store.getUsableSpace() < required + FREE_SPACE_MARGIN) {
                 throw new IOException(
@@ -241,22 +294,14 @@ public final class LocalModelManager implements AutoCloseable {
                                 + " models; need " + (required + FREE_SPACE_MARGIN)
                                 + " free bytes");
             }
-            for (ModelFile file : files.get(set)) {
-                requireNotCancelled();
-                Path destination = resolve(targetDirectory, file.path());
-                if (matchesInstalled(destination, file) || matchesSource(destination, file)) {
-                    continue;
-                }
-                Files.createDirectories(destination.getParent());
-                Path partial = destination.resolveSibling(destination.getFileName() + ".part");
-                present = download(set, file, partial, present);
-                if (!matchesSource(partial, file)) {
-                    throw new IOException("Downloaded model failed SHA-256 verification: "
-                            + file.path());
-                }
-                moveAtomically(partial, destination);
-            }
-            if (set == LocalModelSet.CORE) {
+            DownloadProgress progress = new DownloadProgress(
+                    set, targetDirectory, plan, totalBytes.get(set));
+            downloadAll(plan, progress);
+
+            boolean needsConversion = set == LocalModelSet.CORE && plan.stream()
+                    .anyMatch(file -> file.file().converted()
+                            && file.kind() != PreparedKind.INSTALLED);
+            if (needsConversion) {
                 ModelConverter selectedConverter = converter;
                 if (selectedConverter == null) {
                     throw new IOException("Bundled TripoSplat converter is unavailable");
@@ -271,10 +316,7 @@ public final class LocalModelManager implements AutoCloseable {
                                 LocalModelState.CONVERTING, targetDirectory, line,
                                 totalBytes.get(set), totalBytes.get(set), null)));
                 requireNotCancelled();
-            }
-            if (!verifyAllInstalled(targetDirectory, set)) {
-                throw new IOException("TripoSplat " + set.id()
-                        + " model installation is incomplete");
+                verifyConvertedOutputs(set, targetDirectory, plan);
             }
         } catch (CancellationException exception) {
             throw exception;
@@ -287,161 +329,412 @@ public final class LocalModelManager implements AutoCloseable {
         }
     }
 
-    private long download(
-            LocalModelSet set,
-            ModelFile file,
-            Path partial,
-            long completedBefore
+    private List<PreparedFile> prepareFiles(
+            Path targetDirectory,
+            LocalModelSet set
+    ) throws IOException {
+        List<PreparedFile> result = new ArrayList<>();
+        long present = 0;
+        for (ModelFile file : files.get(set)) {
+            requireNotCancelled();
+            update(set, verifying(targetDirectory, set, file.path(), present));
+            Path destination = resolve(targetDirectory, file.path());
+            Path partial = destination.resolveSibling(destination.getFileName() + ".part");
+            PreparedKind kind = classifyExisting(destination, file);
+            long partialBytes = 0;
+            if (kind == PreparedKind.MISSING && Files.isRegularFile(partial)) {
+                partialBytes = Files.size(partial);
+                if (partialBytes > file.size()) {
+                    Files.delete(partial);
+                    partialBytes = 0;
+                }
+            }
+            PreparedFile prepared = new PreparedFile(
+                    file, destination, partial, kind, partialBytes);
+            result.add(prepared);
+            present += prepared.initialEquivalentBytes();
+            update(set, verifying(targetDirectory, set, file.path(), present));
+        }
+        return List.copyOf(result);
+    }
+
+    private PreparedKind classifyExisting(Path path, ModelFile expected) {
+        try {
+            if (!Files.isRegularFile(path)) {
+                return PreparedKind.MISSING;
+            }
+            long size = Files.size(path);
+            boolean couldBeInstalled = size == expected.effectiveInstalledSize();
+            boolean couldBeSource = size == expected.size();
+            if (!couldBeInstalled && !couldBeSource) {
+                return PreparedKind.MISSING;
+            }
+            String digest = sha256(path, this::installationCancelled);
+            if (couldBeInstalled && digest.equals(expected.effectiveInstalledSha256())) {
+                return PreparedKind.INSTALLED;
+            }
+            if (couldBeSource && digest.equals(expected.sha256())) {
+                return expected.converted()
+                        ? PreparedKind.SOURCE : PreparedKind.INSTALLED;
+            }
+            return PreparedKind.MISSING;
+        } catch (IOException exception) {
+            return PreparedKind.MISSING;
+        }
+    }
+
+    private void downloadAll(
+            List<PreparedFile> plan,
+            DownloadProgress progress
     ) throws IOException, InterruptedException {
+        List<PreparedFile> missing = plan.stream()
+                .filter(PreparedFile::needsDownload)
+                .toList();
+        if (missing.isEmpty()) {
+            return;
+        }
+        ExecutorCompletionService<Void> completion =
+                new ExecutorCompletionService<>(downloadWorkers);
+        List<Future<Void>> futures = new ArrayList<>();
+        for (PreparedFile prepared : missing) {
+            futures.add(completion.submit(() -> {
+                download(prepared, progress);
+                return null;
+            }));
+        }
+        Throwable firstFailure = null;
+        try {
+            for (int index = 0; index < futures.size(); index++) {
+                try {
+                    completion.take().get();
+                } catch (ExecutionException | CancellationException exception) {
+                    Throwable cause = exception instanceof ExecutionException
+                            ? unwrap(exception.getCause()) : exception;
+                    if (firstFailure == null) {
+                        firstFailure = cause;
+                    }
+                    cancelActiveTransfers();
+                }
+            }
+            if (firstFailure instanceof CancellationException cancellation) {
+                throw cancellation;
+            }
+            if (firstFailure instanceof IOException io) {
+                throw io;
+            }
+            if (firstFailure instanceof InterruptedException interrupted) {
+                throw interrupted;
+            }
+            if (firstFailure instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (firstFailure != null) {
+                throw new IOException("Model download failed", firstFailure);
+            }
+        } catch (InterruptedException exception) {
+            cancelActiveTransfers();
+            cancelDownloads(futures);
+            throw exception;
+        } finally {
+            progress.close();
+        }
+    }
+
+    private static void cancelDownloads(List<Future<Void>> futures) {
+        futures.forEach(future -> future.cancel(true));
+    }
+
+    private void download(
+            PreparedFile prepared,
+            DownloadProgress progress
+    ) throws IOException, InterruptedException {
+        ModelFile file = prepared.file();
+        Path partial = prepared.partial();
+        Files.createDirectories(prepared.destination().getParent());
         long existing = Files.isRegularFile(partial) ? Files.size(partial) : 0;
         if (existing > file.size()) {
             Files.delete(partial);
             existing = 0;
         }
+        progress.setBytes(file, existing);
+
+        MessageDigest digest = newSha256();
+        if (existing > 0) {
+            progress.publishVerifying(file, true);
+            digest = digestFile(partial, this::installationCancelled);
+            if (existing == file.size()) {
+                if (digestHex(digest).equals(file.sha256())) {
+                    moveAtomically(partial, prepared.destination());
+                    return;
+                }
+                Files.delete(partial);
+                existing = 0;
+                progress.setBytes(file, 0);
+                progress.publishDownloading(file, true);
+                digest = newSha256();
+            }
+        }
+
         for (int attempt = 0; attempt < 2; attempt++) {
+            requireNotCancelled();
+            progress.publishDownloading(file, true);
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(file.url()))
                     .timeout(Duration.ofHours(6))
-                    .header("User-Agent", "MineSplat/0.4.0")
+                    .header("User-Agent", "MineSplat")
                     .GET();
             if (existing > 0) {
                 builder.header("Range", "bytes=" + existing + "-");
             }
-            HttpResponse<InputStream> response = http.send(
-                    builder.build(), HttpResponse.BodyHandlers.ofInputStream());
-            int status = response.statusCode();
-            if (status == 416 && existing > 0) {
-                response.body().close();
-                Files.deleteIfExists(partial);
-                existing = 0;
-                continue;
-            }
-            if (status != 200 && status != 206) {
-                response.body().close();
-                throw new IOException("Model download returned HTTP " + status
-                        + " for " + file.path());
-            }
-            boolean append = status == 206 && existing > 0;
-            if (!append) {
-                existing = 0;
-            }
-            long written = existing;
-            StandardOpenOption[] options = append
-                    ? new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.APPEND}
-                    : new StandardOpenOption[]{StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE};
-            try (InputStream input = response.body();
-                 OutputStream output = Files.newOutputStream(partial, options)) {
-                byte[] buffer = new byte[256 * 1024];
-                int count;
-                while ((count = input.read(buffer)) >= 0) {
-                    requireNotCancelled();
-                    if (count == 0) {
-                        continue;
-                    }
-                    output.write(buffer, 0, count);
-                    written += count;
-                    update(set, new LocalModelSnapshot(
-                            LocalModelState.DOWNLOADING, directory, file.path(),
-                            completedBefore + written, totalBytes.get(set), null));
+            HttpResponse<InputStream> response = sendRequest(builder.build());
+            InputStream body = response.body();
+            activeBodies.add(body);
+            long written;
+            try (InputStream input = body) {
+                requireNotCancelled();
+                int status = response.statusCode();
+                if (status == 416 && existing > 0) {
+                    Files.deleteIfExists(partial);
+                    existing = 0;
+                    progress.setBytes(file, 0);
+                    progress.publishDownloading(file, true);
+                    digest = newSha256();
+                    continue;
                 }
+                if (status != 200 && status != 206) {
+                    throw new IOException("Model download returned HTTP " + status
+                            + " for " + file.path());
+                }
+                if (status == 206) {
+                    validateContentRange(response, existing, file);
+                }
+                boolean append = status == 206 && existing > 0;
+                if (!append) {
+                    existing = 0;
+                    progress.setBytes(file, 0);
+                    progress.publishDownloading(file, true);
+                    digest = newSha256();
+                }
+                written = existing;
+                StandardOpenOption[] options = append
+                        ? new StandardOpenOption[]{StandardOpenOption.CREATE,
+                        StandardOpenOption.APPEND}
+                        : new StandardOpenOption[]{StandardOpenOption.CREATE,
+                        StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE};
+                try (OutputStream output = Files.newOutputStream(partial, options)) {
+                    byte[] buffer = new byte[256 * 1024];
+                    int count;
+                    while ((count = input.read(buffer)) >= 0) {
+                        requireNotCancelled();
+                        if (count == 0) {
+                            continue;
+                        }
+                        if (written + count > file.size()) {
+                            throw new IOException("Model download exceeded expected size: "
+                                    + file.path());
+                        }
+                        output.write(buffer, 0, count);
+                        digest.update(buffer, 0, count);
+                        written += count;
+                        progress.setBytes(file, written);
+                        progress.publishDownloading(file, false);
+                    }
+                }
+            } catch (IOException exception) {
+                if (installationCancelled()) {
+                    throw new CancellationException("Model installation cancelled");
+                }
+                throw exception;
+            } finally {
+                activeBodies.remove(body);
             }
+            requireNotCancelled();
             if (written != file.size()) {
                 throw new IOException("Model has unexpected size after download: "
                         + file.path());
             }
-            return completedBefore + file.size();
+            progress.publishVerifying(file, true);
+            if (!digestHex(digest).equals(file.sha256())) {
+                throw new IOException("Downloaded model failed SHA-256 verification: "
+                        + file.path());
+            }
+            moveAtomically(partial, prepared.destination());
+            return;
         }
         throw new IOException("Cannot resume model download: " + file.path());
     }
 
+    private HttpResponse<InputStream> sendRequest(HttpRequest request)
+            throws IOException, InterruptedException {
+        CompletableFuture<HttpResponse<InputStream>> requestFuture =
+                http.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream());
+        activeRequests.add(requestFuture);
+        if (installationCancelled()) {
+            requestFuture.cancel(true);
+        }
+        try {
+            return requestFuture.get();
+        } catch (CancellationException exception) {
+            throw new CancellationException("Model installation cancelled");
+        } catch (ExecutionException exception) {
+            Throwable cause = unwrap(exception.getCause());
+            if (installationCancelled() || cause instanceof CancellationException) {
+                throw new CancellationException("Model installation cancelled");
+            }
+            if (cause instanceof IOException io) {
+                throw io;
+            }
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw new IOException("Model download request failed", cause);
+        } catch (InterruptedException exception) {
+            requestFuture.cancel(true);
+            throw exception;
+        } finally {
+            activeRequests.remove(requestFuture);
+        }
+    }
+
+    private void cancelActiveTransfers() {
+        cancelled.set(true);
+        activeRequests.forEach(request -> request.cancel(true));
+        activeBodies.forEach(LocalModelManager::closeQuietly);
+    }
+
+    private static void closeQuietly(InputStream input) {
+        try {
+            input.close();
+        } catch (IOException | RuntimeException ignored) {
+        }
+    }
+
+    private static void validateContentRange(
+            HttpResponse<?> response,
+            long expectedStart,
+            ModelFile file
+    ) throws IOException {
+        String header = response.headers().firstValue("Content-Range")
+                .orElseThrow(() -> new IOException(
+                        "Missing Content-Range for " + file.path()));
+        ContentRange range = parseContentRange(header);
+        if (range.start() != expectedStart
+                || range.end() < range.start()
+                || range.end() != file.size() - 1
+                || range.total() != file.size()) {
+            throw new IOException("Unexpected Content-Range for " + file.path()
+                    + ": " + header);
+        }
+    }
+
+    static ContentRange parseContentRange(String value) throws IOException {
+        Matcher matcher = CONTENT_RANGE.matcher(value == null ? "" : value.trim());
+        if (!matcher.matches()) {
+            throw new IOException("Invalid Content-Range: " + value);
+        }
+        try {
+            return new ContentRange(
+                    Long.parseLong(matcher.group(1)),
+                    Long.parseLong(matcher.group(2)),
+                    Long.parseLong(matcher.group(3)));
+        } catch (NumberFormatException exception) {
+            throw new IOException("Invalid Content-Range: " + value, exception);
+        }
+    }
+
+    private void verifyConvertedOutputs(
+            LocalModelSet set,
+            Path targetDirectory,
+            List<PreparedFile> plan
+    ) throws IOException {
+        for (PreparedFile prepared : plan) {
+            ModelFile file = prepared.file();
+            if (!file.converted() || prepared.kind() == PreparedKind.INSTALLED) {
+                continue;
+            }
+            requireNotCancelled();
+            update(set, verifying(targetDirectory, set, file.path(), totalBytes.get(set)));
+            if (!verifyFile(prepared.destination(), file.effectiveInstalledSize(),
+                    file.effectiveInstalledSha256(), this::installationCancelled)) {
+                throw new IOException("Converted model failed SHA-256 verification: "
+                        + file.path());
+            }
+        }
+    }
+
     private boolean verifyAllInstalled(Path targetDirectory, LocalModelSet set) {
         for (ModelFile file : files.get(set)) {
-            if (!matchesInstalled(resolve(targetDirectory, file.path()), file)) {
+            if (!verifyFile(resolve(targetDirectory, file.path()),
+                    file.effectiveInstalledSize(), file.effectiveInstalledSha256(),
+                    () -> Thread.currentThread().isInterrupted())) {
                 return false;
             }
         }
         return true;
     }
 
-    private long existingBytes(Path targetDirectory, LocalModelSet set) {
-        long total = 0;
-        for (ModelFile file : files.get(set)) {
-            Path destination = resolve(targetDirectory, file.path());
-            Path partial = destination.resolveSibling(destination.getFileName() + ".part");
-            try {
-                if (matchesInstalled(destination, file) || matchesSource(destination, file)) {
-                    total += file.size();
-                } else if (Files.isRegularFile(partial)) {
-                    total += Math.min(Files.size(partial), file.size());
-                }
-            } catch (IOException ignored) {
-            }
-        }
-        return total;
-    }
-
-    private long requiredDownloadBytes(Path targetDirectory, LocalModelSet set) {
-        long required = 0;
-        for (ModelFile file : files.get(set)) {
-            Path destination = resolve(targetDirectory, file.path());
-            if (matchesInstalled(destination, file) || matchesSource(destination, file)) {
-                continue;
-            }
-            Path partial = destination.resolveSibling(destination.getFileName() + ".part");
-            long partialBytes = 0;
-            try {
-                if (Files.isRegularFile(partial)) {
-                    partialBytes = Math.min(Files.size(partial), file.size());
-                }
-            } catch (IOException ignored) {
-            }
-            required += file.size() - partialBytes;
-        }
-        return required;
-    }
-
-    private long conversionScratchBytes(Path targetDirectory, LocalModelSet set) {
+    private static long conversionScratchBytes(
+            LocalModelSet set,
+            List<PreparedFile> plan
+    ) {
         if (set != LocalModelSet.CORE) {
             return 0;
         }
-        long largest = 0;
-        for (ModelFile file : files.get(set)) {
-            Path destination = resolve(targetDirectory, file.path());
-            if (file.converted() && !matchesInstalled(destination, file)) {
-                largest = Math.max(largest, file.effectiveInstalledSize());
-            }
-        }
-        return largest;
+        return plan.stream()
+                .filter(file -> file.file().converted())
+                .filter(file -> file.kind() != PreparedKind.INSTALLED)
+                .mapToLong(file -> file.file().effectiveInstalledSize())
+                .max().orElse(0);
     }
 
-    private static boolean matchesSource(Path path, ModelFile expected) {
-        return verifyFile(path, expected.size(), expected.sha256());
-    }
-
-    private static boolean matchesInstalled(Path path, ModelFile expected) {
-        return verifyFile(path, expected.effectiveInstalledSize(),
-                expected.effectiveInstalledSha256());
-    }
-
-    private static boolean verifyFile(Path path, long size, String sha256) {
+    private static boolean verifyFile(
+            Path path,
+            long size,
+            String expectedSha256,
+            BooleanSupplier cancelled
+    ) {
         try {
             if (!Files.isRegularFile(path) || Files.size(path) != size) {
                 return false;
             }
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            try (InputStream input = Files.newInputStream(path)) {
-                byte[] buffer = new byte[1024 * 1024];
-                int count;
-                while ((count = input.read(buffer)) >= 0) {
-                    if (count > 0) {
-                        digest.update(buffer, 0, count);
-                    }
-                }
-            }
-            return HexFormat.of().formatHex(digest.digest()).equals(sha256);
-        } catch (IOException | NoSuchAlgorithmException exception) {
+            return sha256(path, cancelled).equals(expectedSha256);
+        } catch (IOException exception) {
             return false;
         }
+    }
+
+    static String sha256(Path path, BooleanSupplier cancelled) throws IOException {
+        return digestHex(digestFile(path, cancelled));
+    }
+
+    private static MessageDigest digestFile(
+            Path path,
+            BooleanSupplier cancelled
+    ) throws IOException {
+        MessageDigest digest = newSha256();
+        try (InputStream input = Files.newInputStream(path)) {
+            byte[] buffer = new byte[1024 * 1024];
+            int count;
+            while ((count = input.read(buffer)) >= 0) {
+                requireNotCancelled(cancelled);
+                if (count > 0) {
+                    digest.update(buffer, 0, count);
+                }
+            }
+        }
+        requireNotCancelled(cancelled);
+        return digest;
+    }
+
+    private static MessageDigest newSha256() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
+    }
+
+    private static String digestHex(MessageDigest digest) {
+        return HexFormat.of().formatHex(digest.digest());
     }
 
     private void publishVerification(
@@ -453,19 +746,20 @@ public final class LocalModelManager implements AutoCloseable {
                 ready ? LocalModelState.READY : LocalModelState.MISSING,
                 targetDirectory,
                 null,
-                ready ? totalBytes.get(set) : existingBytes(targetDirectory, set),
+                ready ? totalBytes.get(set) : approximateStoredBytes(targetDirectory, set),
                 totalBytes.get(set),
                 null));
     }
 
-    private LocalModelSnapshot downloading(
+    private LocalModelSnapshot verifying(
             Path targetDirectory,
             LocalModelSet set,
-            String file
+            String file,
+            long presentBytes
     ) {
         return new LocalModelSnapshot(
-                LocalModelState.DOWNLOADING, targetDirectory, file,
-                existingBytes(targetDirectory, set), totalBytes.get(set), null);
+                LocalModelState.VERIFYING, targetDirectory, file,
+                Math.min(presentBytes, totalBytes.get(set)), totalBytes.get(set), null);
     }
 
     private LocalModelSnapshot failed(
@@ -475,7 +769,29 @@ public final class LocalModelManager implements AutoCloseable {
     ) {
         return new LocalModelSnapshot(
                 LocalModelState.FAILED, targetDirectory, null,
-                existingBytes(targetDirectory, set), totalBytes.get(set), error);
+                approximateStoredBytes(targetDirectory, set), totalBytes.get(set), error);
+    }
+
+    private long approximateStoredBytes(Path targetDirectory, LocalModelSet set) {
+        long result = 0;
+        for (ModelFile file : files.get(set)) {
+            Path destination = resolve(targetDirectory, file.path());
+            Path partial = destination.resolveSibling(destination.getFileName() + ".part");
+            try {
+                if (Files.isRegularFile(destination)) {
+                    long size = Files.size(destination);
+                    if (size == file.size() || size == file.effectiveInstalledSize()) {
+                        result += file.size();
+                        continue;
+                    }
+                }
+                if (Files.isRegularFile(partial)) {
+                    result += Math.min(Files.size(partial), file.size());
+                }
+            } catch (IOException ignored) {
+            }
+        }
+        return Math.min(result, totalBytes.get(set));
     }
 
     private void update(LocalModelSet set, LocalModelSnapshot value) {
@@ -501,7 +817,15 @@ public final class LocalModelManager implements AutoCloseable {
     }
 
     private void requireNotCancelled() {
-        if (cancelled.get()) {
+        requireNotCancelled(this::installationCancelled);
+    }
+
+    private boolean installationCancelled() {
+        return cancelled.get() || Thread.currentThread().isInterrupted();
+    }
+
+    private static void requireNotCancelled(BooleanSupplier cancelled) {
+        if (cancelled.getAsBoolean()) {
             throw new CancellationException("Model installation cancelled");
         }
     }
@@ -520,16 +844,28 @@ public final class LocalModelManager implements AutoCloseable {
             if (input == null) {
                 throw new IllegalStateException("Missing TripoSplat model manifest");
             }
-            ModelManifest manifest = GSON.fromJson(
-                    new java.io.InputStreamReader(input, java.nio.charset.StandardCharsets.UTF_8),
-                    ModelManifest.class);
+            return parseManifest(new java.io.InputStreamReader(
+                    input, java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IOException exception) {
+            throw new IllegalStateException("Cannot read TripoSplat model manifest", exception);
+        }
+    }
+
+    private static ModelManifest parseManifest(Reader reader) {
+        try {
+            ModelManifest manifest = GSON.fromJson(reader, ModelManifest.class);
             if (manifest == null || manifest.files() == null || manifest.files().isEmpty()
                     || !TripoSplatRuntimeVersion.MODEL_REVISION.equals(manifest.revision())) {
                 throw new IllegalStateException("Invalid TripoSplat model manifest");
             }
             manifest.files().forEach(ModelFile::validate);
+            for (LocalModelSet set : LocalModelSet.values()) {
+                if (manifest.files().stream().noneMatch(file -> file.modelSet() == set)) {
+                    throw new IllegalStateException("Empty TripoSplat model set: " + set.id());
+                }
+            }
             return manifest;
-        } catch (IOException | JsonParseException exception) {
+        } catch (JsonParseException exception) {
             throw new IllegalStateException("Cannot read TripoSplat model manifest", exception);
         }
     }
@@ -564,12 +900,110 @@ public final class LocalModelManager implements AutoCloseable {
     public synchronized void close() {
         cancelInstall();
         worker.shutdownNow();
+        downloadWorkers.shutdownNow();
     }
 
     @FunctionalInterface
     interface ModelConverter {
         void convert(Path directory, BooleanSupplier cancelled, Consumer<String> output)
                 throws IOException, InterruptedException;
+    }
+
+    private final class DownloadProgress {
+        private final LocalModelSet set;
+        private final Path targetDirectory;
+        private final long total;
+        private final Map<ModelFile, Long> bytesByFile = new HashMap<>();
+        private long completed;
+        private long lastPublicationNanos;
+        private boolean closed;
+
+        private DownloadProgress(
+                LocalModelSet set,
+                Path targetDirectory,
+                List<PreparedFile> plan,
+                long total
+        ) {
+            this.set = set;
+            this.targetDirectory = targetDirectory;
+            this.total = total;
+            for (PreparedFile prepared : plan) {
+                long initial = prepared.initialEquivalentBytes();
+                bytesByFile.put(prepared.file(), initial);
+                completed += initial;
+            }
+        }
+
+        synchronized void setBytes(ModelFile file, long bytes) {
+            long bounded = Math.max(0, Math.min(bytes, file.size()));
+            long previous = bytesByFile.getOrDefault(file, 0L);
+            bytesByFile.put(file, bounded);
+            completed += bounded - previous;
+            completed = Math.max(0, Math.min(completed, total));
+        }
+
+        synchronized void publishDownloading(ModelFile file, boolean force) {
+            if (closed) {
+                return;
+            }
+            long now = System.nanoTime();
+            if (!force && now - lastPublicationNanos
+                    < PROGRESS_PUBLISH_INTERVAL_NANOS) {
+                return;
+            }
+            lastPublicationNanos = now;
+            update(set, new LocalModelSnapshot(
+                    LocalModelState.DOWNLOADING, targetDirectory, file.path(),
+                    completed, total, null));
+        }
+
+        synchronized void publishVerifying(ModelFile file, boolean force) {
+            if (closed) {
+                return;
+            }
+            long now = System.nanoTime();
+            if (!force && now - lastPublicationNanos
+                    < PROGRESS_PUBLISH_INTERVAL_NANOS) {
+                return;
+            }
+            lastPublicationNanos = now;
+            update(set, new LocalModelSnapshot(
+                    LocalModelState.VERIFYING, targetDirectory, file.path(),
+                    completed, total, null));
+        }
+
+        synchronized void close() {
+            closed = true;
+        }
+    }
+
+    private enum PreparedKind {
+        INSTALLED,
+        SOURCE,
+        MISSING
+    }
+
+    private record PreparedFile(
+            ModelFile file,
+            Path destination,
+            Path partial,
+            PreparedKind kind,
+            long partialBytes
+    ) {
+        boolean needsDownload() {
+            return kind == PreparedKind.MISSING;
+        }
+
+        long initialEquivalentBytes() {
+            return needsDownload() ? partialBytes : file.size();
+        }
+
+        long requiredDownloadBytes() {
+            return needsDownload() ? file.size() - partialBytes : 0;
+        }
+    }
+
+    record ContentRange(long start, long end, long total) {
     }
 
     private record ModelManifest(String revision, List<ModelFile> files) {
