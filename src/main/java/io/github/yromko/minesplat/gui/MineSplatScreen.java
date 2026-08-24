@@ -853,42 +853,42 @@ public final class MineSplatScreen extends Screen {
             try {
                 new InferenceTarget.Remote(config.serverUrl());
                 return new StatusLine(Text.translatable(
-                        "minesplat.backend.remote.ready"), 0x55ff55);
+                        "minesplat.backend.remote.ready"), 0xff55ff55);
             } catch (RuntimeException exception) {
                 return new StatusLine(Text.translatable(
-                        "minesplat.backend.remote.setup"), 0xffaa00);
+                        "minesplat.backend.remote.setup"), 0xffffaa00);
             }
         }
         if (!localRuntime.supported()) {
             return new StatusLine(Text.translatable(
-                    "minesplat.backend.local.unsupported"), 0xff5555);
+                    "minesplat.backend.local.unsupported"), 0xffff5555);
         }
         if (coreModelSnapshot.state() != LocalModelState.READY) {
             return new StatusLine(Text.translatable(
-                    "minesplat.backend.local.setup"), 0xffaa00);
+                    "minesplat.backend.local.setup"), 0xffffaa00);
         }
         if (runtimeSnapshot.state() == LocalRuntimeState.FAILED) {
             return new StatusLine(Text.translatable(
-                    "minesplat.backend.local.failed"), 0xff5555);
+                    "minesplat.backend.local.failed"), 0xffff5555);
         }
         if (runtimeSnapshot.state() == LocalRuntimeState.STARTING) {
             return new StatusLine(Text.translatable(
-                    "minesplat.backend.local.starting"), 0xffff55);
+                    "minesplat.backend.local.starting"), 0xffffff55);
         }
         if (draft.sourceMode() == GenerationSourceMode.PROMPT
                 && textModelSnapshot.state() != LocalModelState.READY) {
             return new StatusLine(Text.translatable(
-                    "minesplat.backend.local.prompt_setup"), 0xffaa00);
+                    "minesplat.backend.local.prompt_setup"), 0xffffaa00);
         }
         return new StatusLine(Text.translatable(
-                "minesplat.backend.local.ready", config.localDeviceIndex()), 0x55ff55);
+                "minesplat.backend.local.ready", config.localDeviceIndex()), 0xff55ff55);
     }
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         renderPanel(context);
         super.render(context, mouseX, mouseY, delta);
-        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 10, 0xffffff);
+        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 10, 0xffffffff);
         renderWizard(context);
         switch (page) {
             case SOURCE -> renderSourcePage(context);
@@ -902,7 +902,7 @@ public final class MineSplatScreen extends Screen {
                     Text.literal(trim(localMessage, 90)),
                     width / 2,
                     height - 68,
-                    localMessageError ? 0xff5555 : 0x55ff55);
+                    localMessageError ? 0xffff5555 : 0xff55ff55);
         }
     }
 
@@ -923,7 +923,7 @@ public final class MineSplatScreen extends Screen {
                     : complete ? 0xff244b46 : 0xff20262d;
             int markerBorder = selected ? 0xff73e0d0
                     : complete ? 0xff4fae9f : 0xff4a555f;
-            int color = selected ? 0xffffff : complete ? 0x73e0d0 : 0x7c8791;
+            int color = selected ? 0xffffffff : complete ? 0xff73e0d0 : 0xff7c8791;
             if (index + 1 < pages.length) {
                 int nextCenterX = left + stepWidth * (index + 1) + stepWidth / 2;
                 context.drawHorizontalLine(
@@ -943,7 +943,7 @@ public final class MineSplatScreen extends Screen {
                     complete ? Text.literal("✓") : Text.literal(Integer.toString(index + 1)),
                     centerX,
                     markerY + 2,
-                    selected || complete ? 0xffffff : 0x8c969f);
+                    selected || complete ? 0xffffffff : 0xff8c969f);
             context.drawCenteredTextWithShadow(
                     textRenderer,
                     Text.translatable("minesplat.wizard."
@@ -970,7 +970,7 @@ public final class MineSplatScreen extends Screen {
                     Text.translatable("minesplat.source.image.drop_hint"),
                     width / 2,
                     previewTop + Math.max(8, (previewBottom - previewTop) / 2 - 4),
-                    0xa0a0a0);
+                    0xffa0a0a0);
             return;
         }
         int availableWidth = previewRight - previewLeft - 8;
@@ -1008,19 +1008,19 @@ public final class MineSplatScreen extends Screen {
                 Text.translatable("minesplat.preset"),
                 optionLeft,
                 presetsY - BLOCK_LABEL_GAP,
-                0xa0a0a0);
+                0xffa0a0a0);
         context.drawTextWithShadow(
                 textRenderer,
                 Text.translatable("minesplat.palette"),
                 optionLeft,
                 optionsY - BLOCK_LABEL_GAP,
-                0xa0a0a0);
+                0xffa0a0a0);
         context.drawTextWithShadow(
                 textRenderer,
                 Text.translatable("minesplat.output"),
                 optionLeft,
                 outputY - BLOCK_LABEL_GAP,
-                0xa0a0a0);
+                0xffa0a0a0);
         String warning = startWarning();
         if (warning != null) {
             context.drawCenteredTextWithShadow(
@@ -1028,7 +1028,7 @@ public final class MineSplatScreen extends Screen {
                     Text.literal(trim(warning, 90)),
                     width / 2,
                     outputY + 27,
-                    0xffaa00);
+                    0xffffaa00);
         }
     }
 
@@ -1043,7 +1043,7 @@ public final class MineSplatScreen extends Screen {
         int y = CONTENT_TOP + 8;
         for (int index = 0; index < stages.length; index++) {
             int color = snapshot.state() == GenerationState.SUCCEEDED || index < currentIndex
-                    ? 0x55ff55 : index == currentIndex ? 0xffff55 : 0x707070;
+                    ? 0xff55ff55 : index == currentIndex ? 0xffffff55 : 0xff707070;
             context.drawCenteredTextWithShadow(
                     textRenderer,
                     Text.translatable("minesplat.progress." + stages[index].id()),
@@ -1058,7 +1058,7 @@ public final class MineSplatScreen extends Screen {
                 stateText(snapshot),
                 width / 2,
                 stateY,
-                snapshot.state() == GenerationState.FAILED ? 0xff5555 : 0xffffff);
+                snapshot.state() == GenerationState.FAILED ? 0xffff5555 : 0xffffffff);
         String status = localMessage != null ? localMessage
                 : snapshot.error() != null ? snapshot.error() : snapshot.message();
         if (status != null && !status.isBlank()) {
@@ -1068,25 +1068,25 @@ public final class MineSplatScreen extends Screen {
                     width / 2,
                     stateY + 16,
                     snapshot.state() == GenerationState.FAILED || localMessageError
-                            ? 0xff5555 : 0xa0a0a0);
+                            ? 0xffff5555 : 0xffa0a0a0);
         }
         if (detailsExpanded) {
             int detailsY = CONTENT_TOP + 122;
             if (snapshot.jobId() != null) {
                 context.drawTextWithShadow(textRenderer,
                         Text.translatable("minesplat.details.job", snapshot.jobId()),
-                        left, detailsY, 0x808080);
+                        left, detailsY, 0xff808080);
                 detailsY += 12;
             }
             if (snapshot.device() != null) {
                 context.drawTextWithShadow(textRenderer,
                         Text.translatable("minesplat.details.device", snapshot.device()),
-                        left, detailsY, 0x808080);
+                        left, detailsY, 0xff808080);
                 detailsY += 12;
             }
             context.drawTextWithShadow(textRenderer,
                     Text.translatable("minesplat.details.resolution", snapshot.resolution()),
-                    left, detailsY, 0x808080);
+                    left, detailsY, 0xff808080);
         }
     }
 
@@ -1099,7 +1099,7 @@ public final class MineSplatScreen extends Screen {
                         ? "minesplat.state.succeeded_cnb" : "minesplat.state.succeeded"),
                 width / 2,
                 y,
-                0x55ff55);
+                0xff55ff55);
         int nextY = y + 22;
         if (value.hasImageGenerationTime()) {
             context.drawCenteredTextWithShadow(
@@ -1109,7 +1109,7 @@ public final class MineSplatScreen extends Screen {
                             formatSeconds(value.imageGenerationSeconds())),
                     width / 2,
                     nextY,
-                    0xa0a0a0);
+                    0xffa0a0a0);
             nextY += 14;
         }
         if (value.hasModelGenerationTime()) {
@@ -1120,7 +1120,7 @@ public final class MineSplatScreen extends Screen {
                             formatSeconds(value.modelGenerationSeconds())),
                     width / 2,
                     nextY,
-                    0xa0a0a0);
+                    0xffa0a0a0);
             nextY += 14;
         }
         if (value.outputMode() == OutputMode.CHISELS_AND_BITS
@@ -1130,7 +1130,7 @@ public final class MineSplatScreen extends Screen {
                     Text.literal(trim(cnbPlacement.placementUnavailableReason(), 90)),
                     width / 2,
                     Math.min(height - 68, nextY + 6),
-                    0xffaa00);
+                    0xffffaa00);
         }
     }
 
@@ -1143,7 +1143,7 @@ public final class MineSplatScreen extends Screen {
             return cnbPlacement.integration().unavailableReason();
         }
         StatusLine backend = backendStatus();
-        if (backend.color() != 0x55ff55) {
+        if (backend.color() != 0xff55ff55) {
             return backend.text().getString();
         }
         return null;

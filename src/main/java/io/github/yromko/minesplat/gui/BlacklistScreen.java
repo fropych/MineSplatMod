@@ -128,7 +128,7 @@ final class BlacklistScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         renderPanel(context);
         super.render(context, mouseX, mouseY, delta);
-        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 14, 0xffffff);
+        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 14, 0xffffffff);
         context.drawCenteredTextWithShadow(
                 textRenderer,
                 Text.translatable(
@@ -138,7 +138,7 @@ final class BlacklistScreen extends Screen {
                         blacklisted.size()),
                 width / 2,
                 height - 42,
-                0xa0a0a0);
+                0xffa0a0a0);
     }
 
     private void renderPanel(DrawContext context) {

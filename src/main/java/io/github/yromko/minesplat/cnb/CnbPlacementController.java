@@ -491,16 +491,16 @@ public final class CnbPlacementController implements AutoCloseable {
         }
         int x = 8;
         int y = 8;
-        int color = current.valid() ? 0x55ff55 : 0xff5555;
+        int color = current.valid() ? 0xff55ff55 : 0xffff5555;
         context.drawTextWithShadow(client.textRenderer,
                 Text.translatable("minesplat.cnb.hud", current.blueprintName()),
-                x, y, 0xffffff);
+                x, y, 0xffffffff);
         context.drawTextWithShadow(client.textRenderer,
                 Text.translatable(
                         "minesplat.cnb.hud_details",
                         current.width(), current.height(), current.depth(),
                         current.rotationDegrees()),
-                x, y + 12, 0xdddddd);
+                x, y + 12, 0xffdddddd);
         context.drawTextWithShadow(client.textRenderer,
                 Text.literal(current.message()),
                 x, y + 24, color);
@@ -509,11 +509,11 @@ public final class CnbPlacementController implements AutoCloseable {
                     Text.translatable(
                             "minesplat.cnb.hud_progress",
                             current.placedHostBlocks(), current.totalHostBlocks()),
-                    x, y + 36, 0xffff55);
+                    x, y + 36, 0xffffff55);
         } else if (current.state() == CnbPlacementState.PREVIEW) {
             context.drawTextWithShadow(client.textRenderer,
                     Text.translatable("minesplat.cnb.hud_controls"),
-                    x, y + 36, 0xaaaaaa);
+                    x, y + 36, 0xffaaaaaa);
         }
     }
 

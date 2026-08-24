@@ -452,15 +452,15 @@ final class MineSplatSettingsScreen extends Screen {
 
     private StatusLine currentStatus() {
         if (message != null) {
-            return new StatusLine(Text.literal(message), messageError ? 0xff5555 : 0x55ff55);
+            return new StatusLine(Text.literal(message), messageError ? 0xffff5555 : 0xff55ff55);
         }
         if (mode != InferenceMode.LOCAL) {
             return new StatusLine(
-                    Text.translatable("minesplat.settings.remote.help"), 0xa0a0a0);
+                    Text.translatable("minesplat.settings.remote.help"), 0xffa0a0a0);
         }
         if (!localRuntime.supported()) {
             return new StatusLine(Text.translatable(
-                    "minesplat.local.status.unsupported", localRuntime.platform()), 0xff5555);
+                    "minesplat.local.status.unsupported", localRuntime.platform()), 0xffff5555);
         }
         StatusLine core = modelStatus(LocalModelSet.CORE, coreModels);
         if (core != null) {
@@ -471,35 +471,35 @@ final class MineSplatSettingsScreen extends Screen {
             return text;
         }
         if (runtime.error() != null) {
-            return new StatusLine(Text.literal(runtime.error()), 0xff5555);
+            return new StatusLine(Text.literal(runtime.error()), 0xffff5555);
         }
         if (runtime.device() != null) {
             return new StatusLine(Text.translatable(
-                    "minesplat.local.status.runtime_ready", runtime.device()), 0x55ff55);
+                    "minesplat.local.status.runtime_ready", runtime.device()), 0xff55ff55);
         }
         return new StatusLine(Text.translatable(
-                "minesplat.settings.local.ready"), 0x55ff55);
+                "minesplat.settings.local.ready"), 0xff55ff55);
     }
 
     private StatusLine modelStatus(LocalModelSet set, LocalModelSnapshot snapshot) {
         String name = Text.translatable("minesplat.models." + set.id()).getString();
         return switch (snapshot.state()) {
             case CHECKING -> new StatusLine(Text.translatable(
-                    "minesplat.local.status.models_checking_set", name), 0xffff55);
+                    "minesplat.local.status.models_checking_set", name), 0xffffff55);
             case DOWNLOADING -> new StatusLine(Text.translatable(
                     "minesplat.local.status.models_downloading_set",
                     name,
                     (int) Math.round(snapshot.progress() * 100.0),
                     snapshot.currentFile() == null ? "models" : snapshot.currentFile()),
-                    0xffff55);
+                    0xffffff55);
             case CONVERTING -> new StatusLine(Text.translatable(
-                    "minesplat.local.status.models_converting", name), 0xffff55);
+                    "minesplat.local.status.models_converting", name), 0xffffff55);
             case MISSING -> set == LocalModelSet.CORE
                     ? new StatusLine(Text.translatable(
-                    "minesplat.local.status.models_missing_set", name), 0xffaa00)
+                    "minesplat.local.status.models_missing_set", name), 0xffffaa00)
                     : null;
             case FAILED -> new StatusLine(Text.literal(
-                    snapshot.error() == null ? "Model check failed" : snapshot.error()), 0xff5555);
+                    snapshot.error() == null ? "Model check failed" : snapshot.error()), 0xffff5555);
             case READY -> null;
         };
     }
@@ -508,32 +508,32 @@ final class MineSplatSettingsScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         renderPanel(context);
         super.render(context, mouseX, mouseY, delta);
-        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 14, 0xffffff);
+        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 14, 0xffffffff);
         context.drawCenteredTextWithShadow(
                 textRenderer,
                 Text.translatable("minesplat.settings.subtitle"),
                 width / 2,
                 27,
-                0xa0a0a0);
+                0xffa0a0a0);
         context.drawCenteredTextWithShadow(
                 textRenderer,
                 Text.translatable("minesplat.inference.type"),
                 width / 2,
                 inferenceLabelY,
-                0xa0a0a0);
+                0xffa0a0a0);
         context.drawCenteredTextWithShadow(
                 textRenderer,
                 Text.translatable("minesplat.generation.quality"),
                 width / 2,
                 qualityLabelY,
-                0xa0a0a0);
+                0xffa0a0a0);
         context.drawTextWithShadow(
                 textRenderer,
                 Text.translatable(mode == InferenceMode.LOCAL
                         ? "minesplat.models.directory" : "minesplat.server_url"),
                 targetField.getX(),
                 targetLabelY,
-                0xa0a0a0);
+                0xffa0a0a0);
 
         StatusLine status = currentStatus();
         int statusY = Math.min(height - 48, statusTop);

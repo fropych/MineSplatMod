@@ -272,13 +272,13 @@ final class CustomPaletteEditorScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         MineSplatPanel.render(context, left, panelWidth, height);
         super.render(context, mouseX, mouseY, delta);
-        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 14, 0xffffff);
+        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 14, 0xffffffff);
         context.drawTextWithShadow(
                 textRenderer,
                 Text.translatable("minesplat.palette_editor.name"),
                 left,
                 28,
-                0xa0a0a0);
+                0xffa0a0a0);
         Text footer = message == null
                 ? Text.translatable(
                         "minesplat.palette_editor.page",
@@ -291,7 +291,7 @@ final class CustomPaletteEditorScreen extends Screen {
                 footer,
                 width / 2,
                 height - 42,
-                message == null ? 0xa0a0a0 : 0xffff6b6b);
+                message == null ? 0xffa0a0a0 : 0xffff6b6b);
     }
 
     @Override

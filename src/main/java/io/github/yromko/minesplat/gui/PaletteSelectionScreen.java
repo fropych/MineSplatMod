@@ -287,7 +287,7 @@ final class PaletteSelectionScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         MineSplatPanel.render(context, left, panelWidth, height);
         super.render(context, mouseX, mouseY, delta);
-        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 14, 0xffffff);
+        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 14, 0xffffffff);
         if (message != null) {
             context.drawCenteredTextWithShadow(
                     textRenderer,
@@ -301,7 +301,7 @@ final class PaletteSelectionScreen extends Screen {
                     Text.translatable("minesplat.palettes.page", page + 1, pageCount),
                     width / 2,
                     height - 66,
-                    0xa0a0a0);
+                    0xffa0a0a0);
         }
     }
 

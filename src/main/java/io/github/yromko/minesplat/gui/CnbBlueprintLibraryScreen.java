@@ -133,16 +133,16 @@ public final class CnbBlueprintLibraryScreen extends Screen {
         renderPanel(context);
         super.render(context, mouseX, mouseY, delta);
         context.drawCenteredTextWithShadow(
-                textRenderer, title, width / 2, 14, 0xffffff);
+                textRenderer, title, width / 2, 14, 0xffffffff);
         if (message != null) {
             context.drawCenteredTextWithShadow(
-                    textRenderer, message, width / 2, 30, 0xffaa00);
+                    textRenderer, message, width / 2, 30, 0xffffaa00);
         }
         if (!placement.canPlaceNow()) {
             context.drawCenteredTextWithShadow(
                     textRenderer,
                     placement.placementUnavailableReason(),
-                    width / 2, height - 66, 0xffaa00);
+                    width / 2, height - 66, 0xffffaa00);
         }
     }
 

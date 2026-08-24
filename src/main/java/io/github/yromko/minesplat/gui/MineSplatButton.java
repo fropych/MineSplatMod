@@ -153,7 +153,7 @@ final class MineSplatButton extends ButtonWidget {
                 getMessage(),
                 x + width / 2,
                 y + (height - 8) / 2,
-                active ? 0xffffff : 0x7f8992);
+                active ? 0xffffffff : 0xff7f8992);
         context.disableScissor();
     }
 }
