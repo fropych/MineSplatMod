@@ -1,18 +1,18 @@
 {
-  "release": "v0.2.0",
-  "sourceCommit": "4bb05dec707f1f34f47aac2d679c1bd7021eb779",
+  "release": "v0.2.1",
+  "sourceCommit": "01831b39aa0512413dbb2a167635648d38c788ca",
   "platforms": [
     {
       "platform": "linux-x86_64",
-      "archiveUrl": "https://github.com/fropych/TripoSplatVulkan/releases/download/v0.2.0/triposplat-vulkan-linux-x86_64.tar.gz",
-      "archiveSha256": "65647f0450d157e8aa729ea006ecb7f2a0faed6556e51fccad35fcb7be58ead2",
+      "archiveUrl": "https://github.com/fropych/TripoSplatVulkan/releases/download/v0.2.1/triposplat-vulkan-linux-x86_64.tar.gz",
+      "archiveSha256": "708eb21c5e02cd7545ba80b2cfef4ba9cbf6d07cad9a246f6d8b802f1e8b29e5",
       "executable": "triposplat-vulkan",
       "files": [
         {
           "path": "triposplat-vulkan",
           "resource": "/assets/minesplat/triposplat/runtime/linux-x86_64/triposplat-vulkan",
           "size": 18269088,
-          "sha256": "f47d5ef1b91d3a1ac210d4d8408ddcb464d69f88b85b922f0e175cf838cdc0f0"
+          "sha256": "11d3ed553645811ecda803f54f421ae50e3bbb7ef53f8b9424a9e640a4bddbd5"
         },
         {
           "path": "assets/flow_positions.safetensors",
@@ -24,15 +24,15 @@
     },
     {
       "platform": "windows-x86_64",
-      "archiveUrl": "https://github.com/fropych/TripoSplatVulkan/releases/download/v0.2.0/triposplat-vulkan-windows-x86_64.zip",
-      "archiveSha256": "41e6302b1d43e2f874dbae5f411f67cc2f7cf62ccf01f9a0d5d0b591602acfc1",
+      "archiveUrl": "https://github.com/fropych/TripoSplatVulkan/releases/download/v0.2.1/triposplat-vulkan-windows-x86_64.zip",
+      "archiveSha256": "030e2d40ccc9e15d763c5f4703b53a7de312d877d77d5f6f3f328bbba033a35f",
       "executable": "triposplat-vulkan.exe",
       "files": [
         {
           "path": "triposplat-vulkan.exe",
           "resource": "/assets/minesplat/triposplat/runtime/windows-x86_64/triposplat-vulkan.exe",
-          "size": 23873823,
-          "sha256": "cbe80f80fd8af79e40ceb5c88c36b63b8fe5c3bc90174ba3b64f7f78eccf570d"
+          "size": 23873841,
+          "sha256": "bee9ef0e72d41d92464482927b3c0c791c9100314bdce79d82eda58bf800766d"
         },
         {
           "path": "assets/flow_positions.safetensors",
