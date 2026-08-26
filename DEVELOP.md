@@ -98,8 +98,8 @@ included.
 ## Runtime and model data
 
 Each Minecraft-specific MineSplat JAR contains the Windows and Linux x86-64
-runtime files published with TripoSplatVulkan `v0.2.0`, source commit
-`4bb05dec707f1f34f47aac2d679c1bd7021eb779`. Native compilation is not part of
+runtime files published with TripoSplatVulkan `v0.2.1`, source commit
+`01831b39aa0512413dbb2a167635648d38c788ca`. Native compilation is not part of
 the MineSplat Gradle build.
 
 The upstream source is pinned at `third_party/TripoSplatVulkan`. Bundled files
