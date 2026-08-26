@@ -64,8 +64,8 @@ optional C&B distribution into `run-cnb/mods`.
 
 Every Minecraft-specific JAR is universal with respect to local inference: it
 contains the official Linux and Windows x86-64 runtime assets from
-TripoSplatVulkan release `v0.2.0`, source commit
-`4bb05dec707f1f34f47aac2d679c1bd7021eb779`. The submodule lives at
+TripoSplatVulkan release `v0.2.1`, source commit
+`01831b39aa0512413dbb2a167635648d38c788ca`. The submodule lives at
 `third_party/TripoSplatVulkan`; initialize it with
 `git submodule update --init --recursive`. Native compilation is not part of
 the MineSplat build. `validateTripoSplatRuntime` verifies every bundled runtime
@@ -101,7 +101,7 @@ overwrites an existing schematic or MineSplat blueprint.
 Local models are downloaded directly by the mod with resumable HTTP transfers,
 size checks, and SHA-256 verification. The base snapshot is pinned to revision
 `de3b99ab2627d565a8d5fc40f2db52557b82b974`; three files are normalized by the
-bundled `v0.2.0` converter after download. The optional prompt set contains the
+bundled `v0.2.1` converter after download. The optional prompt set contains the
 Z-Image diffusion model, Qwen text encoder, and VAE (6,696,835,812 bytes).
 The default directory is
 `minecraft/minesplat/models/<revision>/`; a custom directory can be selected in
