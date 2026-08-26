@@ -73,8 +73,8 @@ deleted on explicit session finish, a new generation, or client shutdown.
 
 Each Minecraft-specific JAR is universal only along the native-runtime axis: it
 carries the independently hashed official Windows and Linux x86-64 assets from
-TripoSplatVulkan release `v0.2.0`, source commit
-`4bb05dec707f1f34f47aac2d679c1bd7021eb779`. The upstream project remains an
+TripoSplatVulkan release `v0.2.1`, source commit
+`01831b39aa0512413dbb2a167635648d38c788ca`. The upstream project remains an
 unmodified Git submodule pinned to the same commit. Unsupported OS/CPU pairs
 expose only Remote mode; local inference is Vulkan-only and has no CPU backend.
 
