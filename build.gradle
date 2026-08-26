@@ -100,8 +100,8 @@ tasks.named("processResources") {
     }
 }
 
-def tripoSplatRelease = "v0.2.0"
-def tripoSplatSourceCommit = "4bb05dec707f1f34f47aac2d679c1bd7021eb779"
+def tripoSplatRelease = "v0.2.1"
+def tripoSplatSourceCommit = "01831b39aa0512413dbb2a167635648d38c788ca"
 def tripoSplatManifest = file(
         "src/main/resources/assets/minesplat/triposplat/runtime-manifest.json")
 def tripoSplatModelManifest = file(
