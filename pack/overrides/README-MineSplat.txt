@@ -16,5 +16,5 @@ Optional Chisels & Bits output:
 - Saved blueprints are stored in minesplat/blueprints/.
 - MineSplat and Litematica continue to work normally without Chisels & Bits.
 
-RU/EN installation and usage guide:
+Installation and usage guide:
 https://github.com/fropych/MineSplatMod/blob/main/docs/USER_GUIDE.md

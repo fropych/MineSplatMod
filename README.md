@@ -1,166 +1,162 @@
 # MineSplat
 
-MineSplat is a client-side Fabric mod for Minecraft 1.20.1, 1.21.1, and
-1.21.11. It turns an image or text prompt into a fixed 32,768-Gaussian model,
-voxelizes it, maps TSVOX v2 colors to safe vanilla blocks in OKLab, and exports
-either a `.litematic` or an optional Chisels & Bits miniature.
+MineSplat turns an image or text description into a 3D Minecraft build. Choose
+the build size and allowed blocks, then use the result with Litematica or create
+a detailed Chisels & Bits miniature.
 
-Inference can use either a user-supplied remote TripoSplat API v1 or the
-TripoSplatVulkan runtime bundled in the mod. Local mode starts that runtime as a
-loopback REST sidecar, so both modes use the same API client and generation
-workflow. Local inference is available on Windows and Linux x86-64, requires a
-Vulkan 1.2-capable GPU with a current driver, and has no CPU fallback. Other
-platforms retain remote mode.
+MineSplat only needs to be installed for the player using it. Minecraft
+servers do not need it.
 
-## Supported targets
+[Download](https://github.com/fropych/MineSplatMod/releases) ·
+[Detailed user guide](docs/USER_GUIDE.md) ·
+[Developer documentation](DEVELOP.md)
 
-Each Minecraft line has its own JAR, Prism `.mrpack`, dependency lock, and
-vanilla block palette. Do not mix files between target versions.
+## Contents
 
-| Minecraft | Java | Yarn | Fabric API | Litematica | MaLiLib | Mod Menu | Chisels & Bits |
-| --- | ---: | --- | --- | --- | --- | --- | --- |
-| 1.20.1 | 17 | `1.20.1+build.10` | `0.92.11+1.20.1` | `0.15.4` | `0.16.3` | `7.2.2` | `20.1.20` |
-| 1.21.1 | 21 | `1.21.1+build.3` | `0.116.15+1.21.1` | `0.19.61` | `0.21.10` | `11.0.3` | `21.1.33` |
-| 1.21.11 | 21 | `1.21.11+build.6` | `0.141.6+1.21.11` | `0.26.13` | `0.27.18` | `17.0.0` | `21.11.45` |
+- [Supported versions](#supported-versions)
+- [Installation](#installation)
+- [First-time setup](#first-time-setup)
+- [Creating a build](#creating-a-build)
+- [Quality and build size](#quality-and-build-size)
+- [Block palettes](#block-palettes)
+- [Litematica and Chisels & Bits](#litematica-and-chisels--bits)
+- [Common problems](#common-problems)
 
-Fabric Loader is locked to `0.19.3` on every line. Mod Menu is optional in the
-standalone JAR and included in each Prism pack. Chisels & Bits is optional and
-must be installed separately at the exact version shown for the selected
-Minecraft target.
+## Supported versions
 
-`main` is the current 1.21.11 feature line. `1.21.1/stable` and
-`1.20.1/stable` receive compatible fixes through reviewed backport commits;
-version-specific changes remain on their own line.
+Download the MineSplat release that matches your Minecraft version. Files for
+different Minecraft versions cannot be mixed.
 
-## Install and use
+| Minecraft | Java | Chisels & Bits, if used |
+| --- | ---: | --- |
+| 1.20.1 | 17 | `20.1.20` |
+| 1.21.1 | 21 | `21.1.33` |
+| 1.21.11 | 21 | `21.11.45` |
 
-See the bilingual [user guide](docs/USER_GUIDE.md). The short version is:
-download the `.mrpack` matching your Minecraft version from
-[GitHub Releases](https://github.com/fropych/MineSplatMod/releases), import it
-into Prism Launcher, start a world, press `M + G`, and use Settings in the
-wizard header to choose Local or Remote inference. Local mode downloads and verifies
-the pinned base model snapshot on first use. The separate Z-Image prompt models
-are optional and download only when explicitly requested; no model weights are
-embedded in the JAR.
+## Installation
 
-## Build
+The Prism Launcher pack is the simplest option:
 
-```bash
-./gradlew test
-./gradlew build
-```
+1. Open [GitHub Releases](https://github.com/fropych/MineSplatMod/releases).
+2. Download the Prism pack for your Minecraft version. Its name starts with
+   `minesplat-prism-` and ends with `.mrpack`.
+3. In Prism Launcher, select `Add Instance → Import` and choose the downloaded
+   file.
+4. Check the Java version in the table above and allocate 4–6 GB of memory.
+5. Start the instance and open a world.
 
-Build outputs:
+The pack already includes MineSplat, Litematica, and the required Fabric mods.
+Chisels & Bits is optional and must be installed separately using the version
+shown above. In Prism Launcher, open `Edit Instance → Mods → Download Mods`,
+search for Chisels & Bits, and install that version.
 
-- `build/libs/minesplat-fabric-<minecraft>-<mod-version>.jar`
-- `build/distributions/minesplat-prism-<minecraft>-<mod-version>.mrpack`
+For manual installation, see the [detailed user guide](docs/USER_GUIDE.md).
 
-The target is read from the checked-out line's `gradle.properties`; a checkout
-builds exactly one Minecraft version. Run a development client with
-`./gradlew runClient`. Gradle runs on Java 21. The 1.21.11 line pins Gradle
-9.4.0, while the stable 1.21.1 and 1.20.1 lines pin Gradle 9.2.1; the 1.20.1
-line produces Java 17 bytecode. Use
-`./gradlew runClientCnb` for a development run that copies the target's exact
-optional C&B distribution into `run-cnb/mods`.
+## First-time setup
 
-Every Minecraft-specific JAR is universal with respect to local inference: it
-contains the official Linux and Windows x86-64 runtime assets from
-TripoSplatVulkan release `v0.2.1`, source commit
-`01831b39aa0512413dbb2a167635648d38c788ca`. The submodule lives at
-`third_party/TripoSplatVulkan`; initialize it with
-`git submodule update --init --recursive`. Native compilation is not part of
-the MineSplat build. `validateTripoSplatRuntime` verifies every bundled runtime
-file against `runtime-manifest.json` during `check`.
+`Local` is the default and recommended mode:
 
-The development-only `tools/VanillaPaletteGenerator.java` calculates numeric
-per-face colors directly from a legally installed Minecraft client JAR. It
-keeps only opaque, non-falling full-cube states and never copies Minecraft
-textures into the project output. Block categories are maintained separately
-from version-specific colors; the reproducible TXT-to-JSON workflow is
-documented in `tools/palette/README.md`.
+1. Open a world, press `M + G`, and select `Settings`.
+2. Keep `Local` selected.
+3. Select `Install base models` and wait for the installation to finish.
+4. Select `Test local`.
+5. If several graphics cards are shown, use the GPU button to choose one.
+6. Select `Install prompt models` only if you want to create models from text.
 
-Built-in `All`, `Survival`, and `Solid Colors` palettes are read-only. Custom
-palettes can be created and edited in the block-settings screen. They are saved
-as version-independent block-ID differences under
-`config/minesplat/palettes/*.json`; the global block blacklist is applied on
-top of the selected palette.
+Local generation requires 64-bit Windows or Linux, a graphics card that
+supports Vulkan 1.2, and a current driver. NVIDIA graphics cards are tested
+most often. CPU-only generation is not supported.
 
-## API contract
+The base models use about 3.6 GB of disk space; keep about 6 GB free during
+installation. Text prompts need an additional 6.7 GB of models. While creating
+from text, keep about 8 GB of system RAM available in addition to the RAM
+allocated to Minecraft. Interrupted downloads can continue later.
 
-Generation always sends `num_gaussians=32768`, `guidance=3.0`, and
-`erode_radius=1`. Settings provide Base (512px, 10 TripoSplat steps), High
-(512px, 20 steps), and XHigh (1024px, 20 steps); prompt generation uses eight
-Z-Image steps in every mode. The voxel presets change only resolution
-(32, 64, 128, 256, 512, and 1024). This matches the TripoSplat
-server maximum. The 1024 preset is exceptionally heavy and benefits from at
-least 12–16 GiB allocated to the Prism instance.
+`Remote` uses a compatible server configured by you instead of your graphics
+card. Enter its address in `Settings` and select `Test API`. If you do not
+already have access to such a server, leave `Local` selected.
 
-The client validates `/health` as `triposplat-vulkan` API `v1`, uses asynchronous
-HTTP and polling, validates TSVOX v2 before touching Litematica, and never
-overwrites an existing schematic or MineSplat blueprint.
+## Creating a build
 
-Local models are downloaded directly by the mod with resumable HTTP transfers,
-size checks, and SHA-256 verification. The base snapshot is pinned to revision
-`de3b99ab2627d565a8d5fc40f2db52557b82b974`; three files are normalized by the
-bundled `v0.2.1` converter after download. The optional prompt set contains the
-Z-Image diffusion model, Qwen text encoder, and VAE (6,696,835,812 bytes).
-The default directory is
-`minecraft/minesplat/models/<revision>/`; a custom directory can be selected in
-the MineSplat screen. Switching modes never silently falls back to the other
-backend.
+1. Open a world and press `M + G`.
+2. Choose `Image` and select or drop a PNG/JPEG, or choose `Prompt` and
+   describe the object.
+3. Select `Next: block settings`.
+4. Enter a name, choose the build grid size, palette, excluded blocks, and
+   either Litematica or Chisels & Bits.
+5. Start creation and wait for the Result page.
 
-## Optional Chisels & Bits output
+Closing the MineSplat window does not stop creation. During the current game
+session, changing only the grid size, palette, or excluded blocks avoids
+generating the 3D model again and is usually much faster.
 
-MineSplat detects only the exact C&B release selected for its Minecraft target:
-`20.1.20` on 1.20.1, `21.1.33` on 1.21.1, and `21.11.45` on 1.21.11. Without
-it, the Litematica workflow remains fully functional and no C&B classes are
-linked.
+## Quality and build size
 
-With it installed, MineSplat saves sparse `.msbp` blueprints under
-`minecraft/minesplat/blueprints/`. In a Creative singleplayer world these can be
-positioned with a colored hologram, rotated with `R` / `Shift+R`, moved with the
-arrow and Page Up/Down keys, and confirmed with right-click.
+Quality is selected in `Settings`:
 
-One TSVOX voxel maps to one C&B bit. World mutation runs on the integrated
-server thread in bounded batches and rolls back MineSplat-created host blocks
-if placement fails. To avoid coarse C&B lighting shadows, placement also adds
-one invisible level-15 light block near the center of every occupied 5×5×5
-host-block section. Existing world blocks are never replaced.
+- `Base` — fastest; start with this mode.
+- `High` — takes longer and can produce more detail.
+- `XHigh` — uses a larger generated image for text prompts. For uploaded
+  images, it behaves like `High`.
 
-## Releases
+The setting named `Voxel resolution` controls the build grid size. A larger
+number can preserve more detail, but also makes the build larger and uses more
+time and memory.
 
-GitHub Actions builds and verifies pushes and pull requests for `main`,
-`1.21.1/stable`, and `1.20.1/stable`. A release is created only by pushing an
-annotated tag with this exact shape:
+- For Litematica, `64` means the build can be up to 64 blocks wide, high, and
+  deep.
+- For Chisels & Bits, `64` means a miniature up to 4 normal blocks in each
+  direction, made from tiny bits.
 
-```text
-mc<minecraft>-<mod-version>
-```
+`64` is the default and a good starting point. `1024` is extremely demanding;
+use a lower value unless Minecraft has 12–16 GB of allocated RAM.
 
-For example, MineSplat 0.5.0 is released as `mc1.20.1-0.5.0`,
-`mc1.21.1-0.5.0`, and `mc1.21.11-0.5.0`. The tag, branch, and
-`gradle.properties` target must agree. The workflow rebuilds from the tagged
-commit, publishes the matching JAR and `.mrpack` plus `SHA256SUMS`, and never
-publishes `-sources.jar`. A manual `workflow_dispatch` validates the same path
-without creating a release. Published tags are immutable; corrections use a
-new mod version.
+## Block palettes
 
-Maintainer release procedure:
+- `All` — all suitable solid blocks.
+- `Survival` — blocks intended for Survival builds.
+- `Solid Colors` — wool, concrete, and terracotta.
 
-1. Set `mod_version` on the target branch, push it, and wait for CI to pass.
-2. Run the `Release` workflow manually from that same branch with the intended
-   tag as `release_tag`; this is a build-only dry run.
-3. Create the annotated tag at the tested commit and push only that tag:
+Glass and other transparent blocks, plus sand and other falling blocks, are not
+used. You can create a custom palette to choose the allowed blocks, and exclude
+individual blocks from any build.
 
-   ```bash
-   git tag -a mc1.21.11-0.5.0 -m "MineSplat 0.5.0 for Minecraft 1.21.11"
-   git push origin mc1.21.11-0.5.0
-   ```
+## Litematica and Chisels & Bits
 
-4. Wait for the tag workflow and verify the three release assets against
-   `SHA256SUMS`. Repeat from each stable branch for its own target tag.
+### Litematica
 
-## License
+MineSplat saves the schematic and shows the build guide in front of the player
+through Litematica. It does not place real blocks. Use the normal Litematica
+tools to position and build it. This works in singleplayer and multiplayer.
 
-MineSplat is MIT licensed. Bundled TripoSplatVulkan and dependency licenses and
-notices are included under `assets/minesplat/triposplat/licenses/` in the JAR.
+### Chisels & Bits
+
+Chisels & Bits must be installed before selecting this option. MineSplat
+creates a miniature that can be reopened from `Saved`.
+
+Miniatures can be created in any open world, but placed only in Creative
+singleplayer. The target area must be empty; MineSplat does not replace
+existing blocks.
+
+While positioning a miniature:
+
+- use `R` / `Shift+R` to rotate it;
+- use the arrow keys and Page Up/Down to move it;
+- right-click to place it;
+- press `Esc` to cancel.
+
+## Common problems
+
+- **Local is unavailable:** update the graphics driver and check that the
+  graphics card supports Vulkan 1.2. Otherwise use Remote.
+- **MineSplat says setup is required:** open `Settings`, install the base
+  models, and select `Test local`.
+- **Text prompts are unavailable:** install the prompt models in `Settings`.
+- **The download reached 100% but did not finish:** MineSplat is checking or
+  preparing the files. Wait for the status message to change.
+- **Chisels & Bits is unavailable:** install the exact version listed for your
+  Minecraft version and restart the game.
+- **Minecraft runs out of memory:** lower the build grid size. Avoid `1024`
+  unless enough memory is allocated.
+
+MineSplat is licensed under the [MIT License](LICENSE).
