@@ -9,6 +9,7 @@ import io.github.yromko.minesplat.inference.LocalModelManager;
 import io.github.yromko.minesplat.inference.LocalModelSet;
 import io.github.yromko.minesplat.inference.LocalModelSnapshot;
 import io.github.yromko.minesplat.inference.LocalModelState;
+import io.github.yromko.minesplat.inference.ModelInstallFeedback;
 import io.github.yromko.minesplat.inference.LocalRuntimeManager;
 import io.github.yromko.minesplat.inference.LocalRuntimeSnapshot;
 import io.github.yromko.minesplat.workflow.GenerationSnapshot;
@@ -20,14 +21,20 @@ import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.EnumMap;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
 final class MineSplatSettingsScreen extends Screen {
+    private static final Logger LOGGER = LoggerFactory.getLogger("MineSplat Settings");
     private final Screen parent;
     private final MineSplatConfig config;
     private final MineSplatController controller;
@@ -63,6 +70,7 @@ final class MineSplatSettingsScreen extends Screen {
     private int qualityLabelY;
     private int targetLabelY;
     private int statusTop;
+    private final Map<LocalModelSet, String> modelTooltips = new EnumMap<>(LocalModelSet.class);
 
     MineSplatSettingsScreen(
             Screen parent,
@@ -96,6 +104,7 @@ final class MineSplatSettingsScreen extends Screen {
 
     private void buildWidgets() {
         clearChildren();
+        modelTooltips.clear();
         panelWidth = Math.min(420, width - 32);
         left = (width - panelWidth) / 2;
         contentTop = height < 300 ? 43 : 46;
@@ -174,7 +183,7 @@ final class MineSplatSettingsScreen extends Screen {
                     targetY, folderWidth, widgetHeight,
                     Text.literal("…"), ignored -> chooseModelDirectory()));
             folderButton.setTooltip(Tooltip.of(
-                    Text.translatable("minesplat.models.choose_directory")));
+                    Text.translatable("minesplat.models.directory_help")));
 
             int deviceY = targetY + widgetHeight + gap;
             int deviceWidth = Math.min(300, panelWidth);
@@ -258,6 +267,19 @@ final class MineSplatSettingsScreen extends Screen {
             LocalModelSnapshot snapshot,
             boolean operationActive
     ) {
+        String help = switch (snapshot.state()) {
+            case FAILED -> snapshot.error() == null ? "Details: logs/latest.log." : snapshot.error();
+            case VERIFYING, CHECKING -> Text.translatable("minesplat.models.verifying_help").getString();
+            case CONVERTING -> Text.translatable("minesplat.models.converting_help").getString();
+            case DOWNLOADING -> Text.translatable("minesplat.models.cancel_help").getString();
+            case READY -> Text.translatable("minesplat.models.ready_help", snapshot.directory()).getString();
+            case MISSING -> Text.translatable("minesplat.models.install_help",
+                    ModelInstallFeedback.formatBytes(localModels.downloadBytes(set)),
+                    ModelInstallFeedback.formatBytes(localModels.freshInstallSpace(set))).getString();
+        };
+        if (!Objects.equals(modelTooltips.put(set, help), help)) {
+            button.setTooltip(Tooltip.of(Text.literal(help)));
+        }
         boolean activeInstall = localModels.installing() && localModels.activeSet() == set;
         if (activeInstall) {
             button.setMessage(Text.translatable("minesplat.models.cancel"));
@@ -306,6 +328,7 @@ final class MineSplatSettingsScreen extends Screen {
             localModels.cancelInstall();
             return;
         }
+        LOGGER.info("Model download requested: set={}, directory={}", set.id(), targetField.getText());
         syncModelDirectory().whenComplete((ignored, failure) -> {
             if (failure != null) {
                 showFailure(failure);
@@ -462,6 +485,17 @@ final class MineSplatSettingsScreen extends Screen {
             return new StatusLine(Text.translatable(
                     "minesplat.local.status.unsupported", localRuntime.platform()), 0xff5555);
         }
+        LocalModelSet active = localModels.activeSet();
+        if (active != null) {
+            StatusLine installing = modelStatus(active, localModels.snapshot(active));
+            if (installing != null) {
+                return installing;
+            }
+        }
+        // A missing base set must not hide a failed prompt-model download.
+        if (textModels.state() == LocalModelState.FAILED && coreModels.state() != LocalModelState.FAILED) {
+            return modelStatus(LocalModelSet.TEXT, textModels);
+        }
         StatusLine core = modelStatus(LocalModelSet.CORE, coreModels);
         if (core != null) {
             return core;
@@ -490,7 +524,9 @@ final class MineSplatSettingsScreen extends Screen {
                     "minesplat.local.status.models_downloading_set",
                     name,
                     Math.min(99, (int) Math.floor(snapshot.progress() * 100.0)),
-                    snapshot.currentFile() == null ? "models" : snapshot.currentFile()),
+                    snapshot.currentFile() == null ? "models" : snapshot.currentFile(),
+                    ModelInstallFeedback.formatBytes(snapshot.downloadedBytes()),
+                    ModelInstallFeedback.formatBytes(snapshot.totalBytes())),
                     0xffff55);
             case VERIFYING -> new StatusLine(Text.translatable(
                     "minesplat.local.status.models_verifying_set",
@@ -542,13 +578,17 @@ final class MineSplatSettingsScreen extends Screen {
 
         StatusLine status = currentStatus();
         int statusY = Math.min(height - 48, statusTop);
-        context.drawTextWrapped(
-                textRenderer,
-                status.text(),
-                left,
-                statusY,
-                panelWidth,
-                status.color());
+        var lines = textRenderer.wrapLines(status.text(), Math.max(1, panelWidth - 12));
+        int lineHeight = textRenderer.fontHeight + 1;
+        int visibleLines = Math.max(1, (height - 36 - statusY) / lineHeight);
+        for (int index = 0; index < Math.min(visibleLines, lines.size()); index++) {
+            context.drawTextWithShadow(textRenderer, lines.get(index), left,
+                    statusY + index * lineHeight, status.color());
+        }
+        if (lines.size() > visibleLines) {
+            context.drawTextWithShadow(textRenderer, "…", left + panelWidth - 10,
+                    statusY + (visibleLines - 1) * lineHeight, status.color());
+        }
     }
 
     private void renderPanel(DrawContext context) {
@@ -578,14 +618,16 @@ final class MineSplatSettingsScreen extends Screen {
         try {
             config.save();
         } catch (IOException exception) {
+            LOGGER.error("Cannot save MineSplat settings", exception);
             message = exception.getMessage();
             messageError = true;
         }
     }
 
     private void showFailure(Throwable throwable) {
+        LOGGER.error("MineSplat settings action failed", throwable);
         client.execute(() -> {
-            message = usefulMessage(throwable);
+            message = ModelInstallFeedback.describe(throwable);
             messageError = true;
         });
     }

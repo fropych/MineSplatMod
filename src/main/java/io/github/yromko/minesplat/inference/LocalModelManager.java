@@ -2,6 +2,8 @@ package io.github.yromko.minesplat.inference;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -44,6 +46,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class LocalModelManager implements AutoCloseable {
+    private static final Logger LOGGER = LoggerFactory.getLogger("MineSplat Model Download");
     private static final Gson GSON = new Gson();
     private static final long FREE_SPACE_MARGIN = 512L * 1024L * 1024L;
     private static final int MAX_CONCURRENT_DOWNLOADS = 3;
@@ -139,6 +142,18 @@ public final class LocalModelManager implements AutoCloseable {
         return directory;
     }
 
+    public long downloadBytes(LocalModelSet set) {
+        return totalBytes.get(set);
+    }
+
+    /** Worst-case free space for a fresh install; includes conversion scratch and safety margin. */
+    public long freshInstallSpace(LocalModelSet set) {
+        long scratch = set == LocalModelSet.CORE ? files.get(set).stream()
+                .filter(ModelFile::converted).mapToLong(ModelFile::effectiveInstalledSize)
+                .max().orElse(0) : 0;
+        return downloadBytes(set) + scratch + FREE_SPACE_MARGIN;
+    }
+
     public boolean ready() {
         return ready(LocalModelSet.CORE);
     }
@@ -205,6 +220,7 @@ public final class LocalModelManager implements AutoCloseable {
             publishVerification(expectedDirectory, LocalModelSet.TEXT, textReady);
             return coreReady;
         }, worker).exceptionally(failure -> {
+            LOGGER.error("Cannot check TripoSplat models in " + expectedDirectory, failure);
             if (directory.equals(expectedDirectory)) {
                 String error = usefulMessage(failure);
                 update(LocalModelSet.CORE, failed(expectedDirectory, LocalModelSet.CORE, error));
@@ -233,6 +249,10 @@ public final class LocalModelManager implements AutoCloseable {
         cancelled.set(false);
         activeSet = set;
         Path targetDirectory = directory;
+        LOGGER.info("Installing TripoSplat {} models in {} (Java {}, OS {} {}, revision {})",
+                set.id(), targetDirectory, System.getProperty("java.version"),
+                System.getProperty("os.name"), System.getProperty("os.arch"),
+                TripoSplatRuntimeVersion.MODEL_REVISION);
         update(set, verifying(targetDirectory, set, null, approximateStoredBytes(
                 targetDirectory, set)));
         CompletableFuture<Void> install = new CompletableFuture<>();
@@ -255,6 +275,14 @@ public final class LocalModelManager implements AutoCloseable {
             Throwable failure
     ) {
         Throwable cause = unwrap(failure);
+        if (cause instanceof CancellationException) {
+            LOGGER.info("TripoSplat {} model installation cancelled in {}", set.id(), targetDirectory);
+        } else if (cause != null) {
+            LOGGER.error("Cannot install TripoSplat " + set.id()
+                    + " models in " + targetDirectory, cause);
+        } else {
+            LOGGER.info("TripoSplat {} models installed in {}", set.id(), targetDirectory);
+        }
         synchronized (this) {
             if (activeInstall == install) {
                 if (directory.equals(targetDirectory)) {
@@ -288,11 +316,12 @@ public final class LocalModelManager implements AutoCloseable {
             long required = plan.stream().mapToLong(PreparedFile::requiredDownloadBytes).sum()
                     + conversionScratchBytes(set, plan);
             FileStore store = Files.getFileStore(targetDirectory);
-            if (store.getUsableSpace() < required + FREE_SPACE_MARGIN) {
-                throw new IOException(
-                        "Not enough disk space for TripoSplat " + set.id()
-                                + " models; need " + (required + FREE_SPACE_MARGIN)
-                                + " free bytes");
+            long available = store.getUsableSpace();
+            LOGGER.info("Model disk check: directory={}, usableBytes={}, requiredBytes={} (including conversion and margin)",
+                    targetDirectory, available, required + FREE_SPACE_MARGIN);
+            if (available < required + FREE_SPACE_MARGIN) {
+                throw ModelInstallFeedback.insufficientSpace(
+                        targetDirectory, required + FREE_SPACE_MARGIN, available);
             }
             DownloadProgress progress = new DownloadProgress(
                     set, targetDirectory, plan, totalBytes.get(set));
@@ -302,6 +331,7 @@ public final class LocalModelManager implements AutoCloseable {
                     .anyMatch(file -> file.file().converted()
                             && file.kind() != PreparedKind.INSTALLED);
             if (needsConversion) {
+                LOGGER.info("Preparing downloaded TripoSplat models for conversion in {}", targetDirectory);
                 ModelConverter selectedConverter = converter;
                 if (selectedConverter == null) {
                     throw new IOException("Bundled TripoSplat converter is unavailable");
@@ -351,6 +381,8 @@ public final class LocalModelManager implements AutoCloseable {
             }
             PreparedFile prepared = new PreparedFile(
                     file, destination, partial, kind, partialBytes);
+            LOGGER.info("Model {}: state={}, partialBytes={}, sourceBytes={}",
+                    file.path(), kind, partialBytes, file.size());
             result.add(prepared);
             present += prepared.initialEquivalentBytes();
             update(set, verifying(targetDirectory, set, file.path(), present));
@@ -379,6 +411,7 @@ public final class LocalModelManager implements AutoCloseable {
             }
             return PreparedKind.MISSING;
         } catch (IOException exception) {
+            LOGGER.warn("Cannot inspect existing model " + path, exception);
             return PreparedKind.MISSING;
         }
     }
@@ -485,13 +518,23 @@ public final class LocalModelManager implements AutoCloseable {
             if (existing > 0) {
                 builder.header("Range", "bytes=" + existing + "-");
             }
-            HttpResponse<InputStream> response = sendRequest(builder.build());
+            LOGGER.info("Downloading {} from {} (resumeBytes={})",
+                    file.path(), URI.create(file.url()).getHost(), existing);
+            HttpResponse<InputStream> response;
+            try {
+                response = sendRequest(builder.build());
+            } catch (IOException exception) {
+                LOGGER.error("Model request failed for " + file.path(), exception);
+                throw exception;
+            }
             InputStream body = response.body();
             activeBodies.add(body);
             long written;
             try (InputStream input = body) {
                 requireNotCancelled();
                 int status = response.statusCode();
+                LOGGER.info("Model response: file={}, status={}, host={}, protocol={}",
+                        file.path(), status, response.uri().getHost(), response.version());
                 if (status == 416 && existing > 0) {
                     Files.deleteIfExists(partial);
                     existing = 0;
@@ -501,8 +544,7 @@ public final class LocalModelManager implements AutoCloseable {
                     continue;
                 }
                 if (status != 200 && status != 206) {
-                    throw new IOException("Model download returned HTTP " + status
-                            + " for " + file.path());
+                    throw ModelInstallFeedback.httpFailure(status, file.path());
                 }
                 if (status == 206) {
                     validateContentRange(response, existing, file);
@@ -558,6 +600,7 @@ public final class LocalModelManager implements AutoCloseable {
                         + file.path());
             }
             moveAtomically(partial, prepared.destination());
+            LOGGER.info("Model downloaded and SHA-256 verified: {}", file.path());
             return;
         }
         throw new IOException("Cannot resume model download: " + file.path());
@@ -887,13 +930,7 @@ public final class LocalModelManager implements AutoCloseable {
     }
 
     private static String usefulMessage(Throwable throwable) {
-        Throwable cause = unwrap(throwable);
-        if (cause == null) {
-            return null;
-        }
-        String message = cause.getMessage();
-        return message == null || message.isBlank()
-                ? cause.getClass().getSimpleName() : message;
+        return ModelInstallFeedback.describe(throwable);
     }
 
     @Override
