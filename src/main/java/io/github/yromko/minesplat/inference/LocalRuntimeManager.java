@@ -183,6 +183,8 @@ public final class LocalRuntimeManager implements AutoCloseable {
                 "--revision", TripoSplatRuntimeVersion.MODEL_REVISION);
         builder.directory(executable.getParent().toFile());
         builder.redirectErrorStream(true);
+        LOGGER.info("Starting TripoSplat model conversion: executable={}, directory={}",
+                executable, modelDirectory);
         Process conversion = builder.start();
         StringBuilder captured = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
@@ -201,6 +203,7 @@ public final class LocalRuntimeManager implements AutoCloseable {
                         break;
                     }
                     output.accept(line);
+                    LOGGER.info("[TripoSplat conversion] {}", line);
                     if (captured.length() < 8192) {
                         captured.append(line).append('\n');
                     }
@@ -210,6 +213,7 @@ public final class LocalRuntimeManager implements AutoCloseable {
             String line;
             while ((line = reader.readLine()) != null) {
                 output.accept(line);
+                LOGGER.info("[TripoSplat conversion] {}", line);
                 if (captured.length() < 8192) {
                     captured.append(line).append('\n');
                 }
@@ -221,10 +225,10 @@ public final class LocalRuntimeManager implements AutoCloseable {
         }
         if (conversion.exitValue() != 0) {
             String detail = captured.toString().trim();
-            throw new IOException(detail.isBlank()
-                    ? "TripoSplat model conversion failed"
-                    : detail);
+            throw new IOException("TripoSplat model conversion failed (exit code "
+                    + conversion.exitValue() + ")" + (detail.isBlank() ? "" : ": " + detail));
         }
+        LOGGER.info("TripoSplat model conversion completed in {}", modelDirectory);
     }
 
     public synchronized void stop() {

@@ -5,6 +5,11 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -76,6 +81,120 @@ class LocalModelManagerDownloadTest {
                     snapshot.downloadedBytes() >= 0
                             && snapshot.downloadedBytes() <= snapshot.totalBytes()));
             assertEquals(LocalModelState.READY, models.snapshot().state());
+        }
+    }
+
+    @Test
+    void exposesHttpFailureAndLogsTheFullException() throws Exception {
+        byte[] payload = "forbidden model".getBytes();
+        startServer(exchange -> respond(exchange, 403, payload, null));
+
+        try (CapturedModelLog log = new CapturedModelLog();
+             LocalModelManager models = manager(List.of(core("core.bin", payload, url("/core"))))) {
+            awaitInitialCheck(models);
+            ExecutionException failure = assertThrows(ExecutionException.class,
+                    () -> models.install().get(5, TimeUnit.SECONDS));
+
+            assertEquals(LocalModelState.FAILED, models.snapshot().state());
+            assertTrue(models.snapshot().error().contains("HTTP 403"));
+            assertTrue(models.snapshot().error().contains("core.bin"));
+            assertTrue(models.snapshot().error().contains("logs/latest.log"));
+            assertTrue(log.events.stream().anyMatch(event ->
+                    event.getThrown() == failure.getCause()
+                            && event.getMessage().getFormattedMessage()
+                            .contains(models.directory().toString())));
+        }
+    }
+
+    @Test
+    void exposesDirectoryFailureBeforeAnyNetworkRequest() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        byte[] payload = "unused model".getBytes();
+        startServer(exchange -> {
+            requests.incrementAndGet();
+            respond(exchange, 200, payload, null);
+        });
+        Files.writeString(temporary.resolve("models"), "a file, not a directory");
+
+        try (LocalModelManager models = manager(List.of(core("core.bin", payload, url("/core"))))) {
+            awaitInitialCheck(models);
+            ExecutionException failure = assertThrows(ExecutionException.class,
+                    () -> models.install().get(5, TimeUnit.SECONDS));
+
+            assertEquals(0, requests.get());
+            assertEquals(LocalModelState.FAILED, models.snapshot().state());
+            assertTrue(models.snapshot().error().contains("Choose a writable folder"));
+            assertTrue(models.snapshot().error().contains("logs/latest.log"));
+        }
+    }
+
+    @Test
+    void exposesDiskSpaceFailureBeforeAnyNetworkRequest() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        byte[] payload = "unused model".getBytes();
+        startServer(exchange -> {
+            requests.incrementAndGet();
+            respond(exchange, 200, payload, null);
+        });
+        JsonObject manifest = GSON.fromJson(manifest(List.of(
+                core("core.bin", payload, url("/core")))), JsonObject.class);
+        manifest.getAsJsonArray("files").get(0).getAsJsonObject()
+                .addProperty("size", Long.MAX_VALUE / 4);
+
+        try (LocalModelManager models = new LocalModelManager(
+                temporary.resolve("models"), HttpClient.newHttpClient(), manifest.toString())) {
+            awaitInitialCheck(models);
+            assertThrows(ExecutionException.class,
+                    () -> models.install().get(5, TimeUnit.SECONDS));
+
+            assertEquals(0, requests.get());
+            assertTrue(models.snapshot().error().contains("Not enough disk space"));
+            assertTrue(models.snapshot().error().contains("available"));
+            assertTrue(models.snapshot().error().contains("logs/latest.log"));
+        }
+    }
+
+    @Test
+    void exposesNestedConverterCauseWithoutDumpingItsOutputIntoTheUi() throws Exception {
+        byte[] source = "source weights".getBytes();
+        byte[] installed = "converted weights".getBytes();
+        startServer(exchange -> respond(exchange, 200, source, null));
+        IOException detail = new IOException("Illegal byte sequence\n" + "native output ".repeat(100));
+
+        try (CapturedModelLog log = new CapturedModelLog();
+             LocalModelManager models = manager(List.of(new ModelSpec(
+                     "core", "core.bin", source, url("/core"), installed)))) {
+            awaitInitialCheck(models);
+            models.converter((directory, cancelled, output) -> {
+                throw new IOException("Converter wrapper", detail);
+            });
+            ExecutionException failure = assertThrows(ExecutionException.class,
+                    () -> models.install().get(5, TimeUnit.SECONDS));
+
+            String displayed = models.snapshot().error();
+            assertTrue(displayed.contains("Illegal byte sequence"));
+            assertFalse(displayed.contains("sequence\n"));
+            assertTrue(displayed.length() <= 350);
+            assertTrue(displayed.endsWith("Details: logs/latest.log."));
+            assertTrue(log.events.stream().anyMatch(event ->
+                    event.getThrown() == failure.getCause()
+                            && rootMessage(event.getThrown()).equals(detail.getMessage())));
+        }
+    }
+
+    @Test
+    void downloadsToDirectoryWithCyrillicAndSpaces() throws Exception {
+        byte[] payload = "unicode model".getBytes();
+        startServer(exchange -> respond(exchange, 200, payload, null));
+        Path directory = temporary.resolve("Моя сборка/веса моделей");
+
+        try (LocalModelManager models = new LocalModelManager(directory, HttpClient.newHttpClient(),
+                manifest(List.of(core("core.bin", payload, url("/core")))))) {
+            awaitInitialCheck(models);
+            models.install().get(5, TimeUnit.SECONDS);
+
+            assertEquals(LocalModelState.READY, models.snapshot().state());
+            assertArrayEquals(payload, Files.readAllBytes(directory.resolve("core.bin")));
         }
     }
 
@@ -449,5 +568,27 @@ class LocalModelManagerDownloadTest {
             String url,
             byte[] installed
     ) {
+    }
+
+    private static final class CapturedModelLog extends AbstractAppender implements AutoCloseable {
+        private final List<LogEvent> events = new CopyOnWriteArrayList<>();
+        private final Logger logger = (Logger) LogManager.getLogger("MineSplat Model Download");
+
+        private CapturedModelLog() {
+            super("MineSplatDownloadTest", null, null, true, Property.EMPTY_ARRAY);
+            start();
+            logger.addAppender(this);
+        }
+
+        @Override
+        public void append(LogEvent event) {
+            events.add(event.toImmutable());
+        }
+
+        @Override
+        public void close() {
+            logger.removeAppender(this);
+            stop();
+        }
     }
 }
